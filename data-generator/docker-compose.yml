@@ -1,0 +1,52 @@
+services:
+  data_generator:
+    container_name: data_generator
+    hostname: data_generator
+    image: data_generator:latest
+    # volumes:
+    #   - ./base.py:/root/base.py
+    networks:
+      - testnet
+  data_store:
+    container_name: data_store
+    hostname: data_store
+    image: docker.io/postgres:12.22
+    environment:
+      POSTGRES_PASSWORD: p
+      POSTGRES_USER: u
+      POSTGRES_DB: d
+  # dumping data from data generator to a pgsql database
+  data_generator_client:
+    container_name: data_generator_client
+    hostname: data_generator_client
+    image: pgsql_client:latest
+    environment:
+      BATCH_SAVE_SIZE: 500 # saving # of records per batch
+      DATA_GENERATOR_ENDPOINT: http://data_generator:5000 # !No trailing slash
+      POSTGRES_HOST: data_store
+      POSTGRES_PASSWORD: p
+      POSTGRES_USER: u
+      POSTGRES_DB: d
+    # attaching volumes for dev purposes only
+    # volumes:
+    #   - ./pgsql_client.py:/root/pgsql_client.py
+    #   - ./pgsql_ep.sh:/root/entrypoint.sh
+    # entrypoint: /root/entrypoint.sh
+    networks:
+      - testnet
+
+  # Test dummy to use with curl command
+  # data_generator_client:
+  #   container_name: data_generator_client
+  #   hostname: data_generator_client
+  #   image: docker.io/alpine/curl:8.9.1
+  #   entrypoint: ["sleep", "infinity"]
+  #   networks:
+  #     - testnet
+networks:
+  testnet:
+    name: testnet
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.20.0/24
