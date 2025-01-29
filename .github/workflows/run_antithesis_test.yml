@@ -1,0 +1,37 @@
+name: Run Antithesis Test
+
+on: 
+  #manual run
+  workflow_dispatch:
+    inputs:
+      duration:
+        type: string
+        required: true
+        default: '1'
+        description: Duration to the test run
+      emails:
+        type: string
+        required: true
+        description: Email receipents
+
+jobs:
+  manual_run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: antithesishq/antithesis-trigger-action@main
+        with:
+          notebook_name: ps_demo
+          tenant: demo
+          username: ${{ secrets.ANTITHESIS_USER_NAME }}
+          password: ${{ secrets.ANTITHESIS_PASSWORD }}
+          github_token: ${{ secrets.GH_PAT }}
+          images:  consumer:latest;producer:latest;pgsql_client:latest;data_generator:latest;validator:latest
+          config_image: demo-data-streaming-config:latest
+          description: "Running the latest container images"
+          email_recipients: ${{ github.event.inputs.emails }}
+          additional_parameters: |-
+            custom.duration=${{ github.event.inputs.duration }}
