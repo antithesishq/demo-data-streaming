@@ -86,7 +86,7 @@ impl Postgres {
                 Ok(d)
             })
             .map_err(|e| {
-                error!("Failed to update timestamp: {}", e);
+                eprintln!("Failed to update timestamp: {}", e);
                 assert_sometimes!(false, "Recorded data consumed from Kafka to state_tracker", &json!({"error": format!("Failed to update timestamp {}", e)}));
                 e
             })?;
@@ -135,15 +135,15 @@ impl ClientContext for CustomContext {}
 
 impl ConsumerContext for CustomContext {
     fn pre_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance) {
-        info!("Pre rebalance {:?}", rebalance);
+        println!("Pre rebalance {:?}", rebalance);
     }
 
     fn post_rebalance(&self, _: &BaseConsumer<Self>, rebalance: &Rebalance) {
-        info!("Post rebalance {:?}", rebalance);
+        println!("Post rebalance {:?}", rebalance);
     }
 
     fn commit_callback(&self, result: KafkaResult<()>, _offsets: &TopicPartitionList) {
-        info!("Committing offsets: {:?}", result);
+        println!("Committing offsets: {:?}", result);
     }
 }
 
@@ -235,7 +235,7 @@ async fn handle(
             Postgres::new("host=state_tracker user=u password=p dbname=d ")
             .await
             .map_err(|e| {
-                error!("Failed to initialize Postgres {:?}", e);
+                eprintln!("Failed to initialize Postgres {:?}", e);
                 e
             })
             .unwrap()
@@ -246,13 +246,13 @@ async fn handle(
     if let Some(pg_client) = &*pg_client_guard {
         consumer.subscribe(&[&topic])
             .map_err(|e| {
-                error!("Can't subscribe to specified topics: {}", e);
+                eprintln!("Can't subscribe to specified topics: {}", e);
                 assert_sometimes!(false, "Consumer subscribed to topic", &json!({"error": format!("Can't subscribe to specified topics: {}", e)}));
                 e
             })
             .unwrap();
         
-        info!("Subbed to topic");
+        println!("Subbed to topic");
         assert_sometimes!(true, "Consumer subscribed to topic", &json!({"value": topic}));
 
         let mut count = 0;
@@ -263,29 +263,36 @@ async fn handle(
                     if let Some(payload) = message.payload_view::<str>() {
                         match payload {
                             Ok(text) => {
-                                assert_sometimes!(true, "Consumer's consumed message has good string decoding", &json!({"value": text}));
+                                assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
                                 let b_a = serde_json::from_str::<BankAccount>(text.trim())
                                     .map_err(|e| {
-                                        error!("Can't serialize BankAccount from producer");
+                                        eprintln!("Can't serialize BankAccount from producer");
                                         assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
                                         e
                                     })
                                     .unwrap();
-                                info!("Received message: {:?}", b_a);
-                                pg_client.write_consumed(&b_a, &mode)
-                                    .await
-                                    .unwrap();
+                                println!("Received message: {:?}", b_a);
+                                loop {
+                                    match pg_client.write_consumed(&b_a, &mode).await {
+                                        Ok(_) => { break; },
+                                        Err(e) => {
+                                            eprintln!("Failed to send data to postgres {:?}", e);
+                                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                            println!("Going to retry  {:?}", e);
+                                        }
+                                    }
+                                }
                             },
                             Err(e) => {
-                                error!("Failed to decode message payload: {}", e);
-                                assert_sometimes!(false, "Consumer's consumed message has good string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
+                                eprintln!("Failed to decode message payload: {}", e);
+                                assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
                             },
                         }
                     }
                     count += 1;
                 }
                 Err(e) => {
-                    error!("Error while consuming: {}", e);
+                    eprintln!("Error while consuming: {}", e);
                     assert_sometimes!(false, "Consumer consumed data", &json!({"error": format!("Error while consuming: {}", e)}));
 
                 }
@@ -307,7 +314,7 @@ struct AppState {
 #[tokio::main]
 async fn main() {
     antithesis_init();
-    env_logger::init();
+    // env_logger::init();
 
     let brokers = vec!["kafka-3:9092", "kafka-2:9092", "kafka-1:9092"];
     let pg_client = Arc::new(Mutex::new(None));

@@ -1,2 +1,2 @@
 #!/bin/bash
-RUST_LOG=debug /validator/target/debug/validator --test consumption-order
+RUST_LOG=error /validator/target/debug/validator --test consumption-order

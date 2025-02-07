@@ -3,7 +3,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 use std::fmt::Write;
 
 use clap::{App, Arg};
-use log::{info, error, debug};
+use log::{debug, error, info, warn};
 
 use rdkafka::config::ClientConfig;
 use rdkafka::message::{OwnedHeaders, Header, Headers};
@@ -13,6 +13,8 @@ use env_logger;
 
 use reqwest;
 
+use tokio::runtime::Handle;
+use tokio::signal::unix::SignalKind;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -195,7 +197,7 @@ impl Postgres {
             .iter()
             .map(BankAccount::from_row)
             .collect(); // Collect directly since there are no errors in `from_row`
-        assert_sometimes!(true, "Producer recieved data from state_tracker", &json!({"result": accounts}));
+        assert_sometimes!(true, "Producer recieved data from state_tracker", &json!({"result": accounts.len()}));
         Ok(accounts) // Wrap in `Ok` because this function returns a Result
             // TRY USE THIS: use serde_postgres::de::from_row;
     }
@@ -219,7 +221,7 @@ impl Postgres {
             })
             .map_err(|e| {
                 error!("Failed to update timestamp: {}", e);
-                assert_sometimes!(false, "Producer recorded data produced to Kafka on state_tracker", &json!({"error": format!("Failed to update timestamp {}", e)}));
+                assert_sometimes!(false, "Producer recorded data produced to Kafka on state_tracker", &json!({"error": format!("Failed to update timestamp for {:?} {}", b_a, e)}));
                 e
             })?;
         Ok(())
@@ -255,7 +257,7 @@ async fn add_context_middleware(
     next: Next,
     context: KafkaProducers, // Pass context explicitly
 ) -> Response {
-    println!("middleware: adding context to request");
+    info!("middleware: adding context to request");
     req.extensions_mut().insert(context);
     next.run(req).await
 }
@@ -300,29 +302,39 @@ async fn handle(
                     assert_unreachable!("Producer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
                     e
                 }).unwrap();
-            let msg = format!("{}", &bank_account_str);
-            let key = format!("{}", &bank_account.id);
-            println!("About to produce");
+            let msg: String = format!("{}", &bank_account_str);
+            let key: String = format!("{}", &bank_account.id);
+            info!("About to produce");
             let producer_delivery_status = producer
                 .send(
                     FutureRecord::to(&topic)
                         .payload(&msg)
                         .key(&key),
-                    Duration::from_secs(5),
+                    Duration::from_secs(60),
                 )
                 .await;
-            println!("Data produced");
+            info!("Data produced");
             // We won't record the data in postgres if it fails to send
             // This will mean we will try to send the same data when we query postgres for unsent data
             match producer_delivery_status {
                 Ok(delivery) => {
                     assert_sometimes!(true, "Produced data to Kafka", &json!({"result": delivery}));
-                    println!("About to postgres");
+                    info!("About to postgres");
+                    loop {
+                        match pg_client.write_produced(bank_account, &mode).await {
+                            Ok(_) => { break; },
+                            Err(e) => {
+                                error!("Failed to send data to postgres {:?}", e);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                info!("Going to retry  {:?}", e);
+                            }
+                        }
+                    }
                     pg_client
                         .write_produced(bank_account, &mode)
                         .await
                         .unwrap();
-                    println!("Data sent to postgres");
+                    info!("Data sent to postgres");
                 }
                 Err(e) => {
                     error!("Failed to deliver message {:?}", e);
@@ -331,7 +343,7 @@ async fn handle(
             }
         }
 
-        info!("{:?}", bank_accounts);
+        info!("num_bank_accounts_produced {:?}", bank_accounts.len());
         // Use pg_client.client for database operations
     }
     // The producer will automatically batch before sending messages
@@ -343,10 +355,26 @@ async fn handle(
 
 #[tokio::main]
 async fn main() {
-    console_subscriber::init();
     antithesis_init();
-    println!("{:?}", SystemTime::now().duration_since(UNIX_EPOCH));
-    // env_logger::init();
+    info!("{:?}", SystemTime::now().duration_since(UNIX_EPOCH));
+    env_logger::init();
+    let handle = Handle::current();
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async move {
+            let mut sig = tokio::signal::unix::signal(SignalKind::user_defined1()).unwrap();
+            loop {
+                sig.recv().await;
+                let dump = handle.dump().await;
+                for (i, task) in dump.tasks().iter().enumerate() {
+                    let trace = task.trace();
+                    info!("TASK {i}:");
+                    info!("{trace}\n");
+                }
+            }
+        })
+    });
 
     let producers: Arc<Mutex<HashMap<String, FutureProducer>>> = Arc::new(Mutex::new(HashMap::new()));
     let brokers = vec!["kafka-3:9092", "kafka-2:9092", "kafka-1:9092"];
@@ -356,7 +384,7 @@ async fn main() {
     let app = create_router(state.into());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("Server running at http:{:?}", listener);
+    info!("Server running at http:{:?}", listener);
     
     axum::serve(listener, app).await.unwrap();    
 }
