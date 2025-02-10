@@ -9,9 +9,9 @@ run:
 down: 
 	docker-compose down
 
-build-all: build-consumer build-producer build-validator build-data_generator build-pgsql_client
+build-all: build-consumer build-producer build-validator build-data_generator build-pgsql_client build-kafka
 
-push-all: push-consumer push-producer push-validator push-data_generator push-pgsql_client
+push-all: push-consumer push-producer push-validator push-data_generator push-pgsql_client push-kafka
 
 build-consumer:
 	podman build \
@@ -55,6 +55,13 @@ build-config:
 		-t demo-data-streaming-config:latest \
 		.
 
+build-kafka:
+	podman build \
+		-f ./kafka/kafka.Dockerfile \
+		-t us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/kafka:latest \
+		-t kafka:latest \
+		kafka
+
 push-consumer:
 	customer credentials_shell -c "podman push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/consumer:latest"
 
@@ -72,3 +79,7 @@ push-pgsql_client:
 
 push-config:
 	customer credentials_shell -c "podman push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/demo-data-streaming-config:latest"
+
+push-kafka:
+	customer credentials_shell -c "podman push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/kafka:latest"
+

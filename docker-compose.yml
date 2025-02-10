@@ -1,6 +1,7 @@
+version: '2'
 services:
   kafka-1:
-    image: 'docker.io/apache/kafka:latest'
+    image: kafka:latest
     container_name: kafka-1
     hostname: kafka-1
     environment:
@@ -11,8 +12,11 @@ services:
       KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093"
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.11
   kafka-2:
-    image: 'docker.io/apache/kafka:latest'
+    image: kafka:latest
     container_name: kafka-2
     hostname: kafka-2
     environment:
@@ -22,8 +26,11 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.12
   kafka-3:
-    image: 'docker.io/apache/kafka:latest'
+    image: kafka:latest
     container_name: kafka-3
     hostname: kafka-3
     environment:
@@ -33,18 +40,16 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-  state_tracker:
-    container_name: state_tracker
-    hostname: state_tracker
-    image: docker.io/postgres:12.22
-    environment:
-      POSTGRES_PASSWORD: p
-      POSTGRES_USER: u
-      POSTGRES_DB: d
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.13
   data_generator:
     container_name: data_generator
     hostname: data_generator
     image: data_generator:latest
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.14
   data_generator_client:
     container_name: data_generator_client
     hostname: data_generator_client
@@ -56,16 +61,32 @@ services:
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
       POSTGRES_DB: d
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.15
+  state_tracker:
+    container_name: state_tracker
+    hostname: state_tracker
+    image: docker.io/library/postgres:12.22
+    environment:
+      POSTGRES_PASSWORD: p
+      POSTGRES_USER: u
+      POSTGRES_DB: d
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.16
   producer:
     image: producer:latest
     hostname: producer
     container_name: producer
     environment:
       RUST_LOG: debug 
-    # entrypoint: sleep infinity
     entrypoint: /producer/target/debug/producer
     cap_add:
       - SYS_PTRACE
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.17
   consumer:
     image: consumer:latest
     hostname: consumer
@@ -73,10 +94,20 @@ services:
     environment:
       RUST_LOG: debug 
     entrypoint: /consumer/target/debug/consumer
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.18
   validator:
     image: validator:latest
     hostname: validator
     container_name: validator
-    # volumes:
-    #   ../../workload/validator:/validator
     entrypoint: sleep infinity
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.19
+networks:
+  kafka-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 11.0.0.0/24

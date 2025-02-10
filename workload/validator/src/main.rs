@@ -195,15 +195,15 @@ async fn run_check_for_30s(pg_client: Postgres) -> Option<Vec<BankAccount>> {
     while Instant::now().duration_since(start_time) < duration {
         match pg_client.get_produced_data().await {
             Ok(b_as) => {
-                info!("Produced data {:?}", b_as);
+                info!("Produced data length {:?}", b_as.len());
                 last_result = Some(find_produced_data_thats_not_consumed_yet(&b_as));
-                info!("Produced data thats not consumed yet{:?}", last_result);
+                //info!("Produced data thats not consumed yet {:?}", last_result);
             }
             Err(err) => {
                 error!("Failed to get produced data: {}", err);
             }
         }
-        sleep(Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(5000)).await;
     }
     
     info!("Finished checking after 30 seconds.");
@@ -260,7 +260,8 @@ async fn main() {
                     Some(b_as) => {
                         // On the test composer eventually script
                         // Call the consumer with a large number of consumption before calling the validator
-                        assert_always!(b_as.len() == 0, "Produced data matches consumed data after 30s of not producing and not consuming", &json!({"result": b_as}))
+                        info!("Check completed");
+                        assert_always!(b_as.len() == 0, "Produced data matches consumed data after 30s of not producing and only consuming", &json!({"result": b_as}))
                     },
                     None => {}
                 }
