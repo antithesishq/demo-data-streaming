@@ -358,23 +358,6 @@ async fn main() {
     antithesis_init();
     info!("{:?}", SystemTime::now().duration_since(UNIX_EPOCH));
     env_logger::init();
-    let handle = Handle::current();
-
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async move {
-            let mut sig = tokio::signal::unix::signal(SignalKind::user_defined1()).unwrap();
-            loop {
-                sig.recv().await;
-                let dump = handle.dump().await;
-                for (i, task) in dump.tasks().iter().enumerate() {
-                    let trace = task.trace();
-                    info!("TASK {i}:");
-                    info!("{trace}\n");
-                }
-            }
-        })
-    });
 
     let producers: Arc<Mutex<HashMap<String, FutureProducer>>> = Arc::new(Mutex::new(HashMap::new()));
     let brokers = vec!["kafka-3:9092", "kafka-2:9092", "kafka-1:9092"];
