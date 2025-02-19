@@ -1,4 +1,4 @@
-name: Run Antithesis Test
+name: Get Logs
 
 on: 
   #manual run

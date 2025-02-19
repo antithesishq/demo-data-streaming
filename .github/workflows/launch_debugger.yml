@@ -1,4 +1,4 @@
-name: Run Antithesis Test
+name: Launch multiverse debugger
 
 on: 
   #manual run
