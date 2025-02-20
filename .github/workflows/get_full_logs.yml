@@ -19,11 +19,13 @@ on:
       capture_before_time:
         type: string
         required: true
-        description: Amount of time to 
+        default: '10'
+        description: Amount of time before the moment
       capture_after_time:
         type: string
         required: true
-        description: Vtime for the moment
+        description: Amount of time after the moment
+        default: '10'
       emails:
         type: string
         required: true
