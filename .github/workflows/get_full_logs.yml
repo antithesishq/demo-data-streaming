@@ -16,16 +16,16 @@ on:
         type: string
         required: true
         description: Vtime for the moment
-      capture_before_time:
-        type: string
-        required: true
-        default: '10'
-        description: Amount of time before the moment
-      capture_after_time:
-        type: string
-        required: true
-        description: Amount of time after the moment
-        default: '10'
+      # capture_before_time:
+      #   type: string
+      #   required: true
+      #   default: '10'
+      #   description: Amount of time before the moment
+      # capture_after_time:
+      #   type: string
+      #   required: true
+      #   description: Amount of time after the moment
+      #   default: '10'
       emails:
         type: string
         required: true
@@ -51,5 +51,3 @@ jobs:
             custom.session_id=${{ github.event.inputs.session_id }}
             custom.input_hash=${{ github.event.inputs.input_hash }}
             custom.vtime=${{ github.event.inputs.vtime }}
-            custom.capture_time_before_moment=${{ github.event.inputs.capture_before_time }}
-            custom.capture_time_after_moment=${{ github.event.inputs.capture_after_time }}
