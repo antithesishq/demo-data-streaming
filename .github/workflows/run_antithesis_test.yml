@@ -31,7 +31,6 @@ jobs:
           github_token: ${{ secrets.GH_PAT }}
           images:  consumer:latest;producer:latest;pgsql_client:latest;data_generator:latest;validator:latest;kafka:latest
           config_image: demo-data-streaming-config:latest
-          description: "Running the latest container images"
           email_recipients: ${{ github.event.inputs.emails }}
           additional_parameters: |-
             custom.duration=${{ github.event.inputs.duration }}
