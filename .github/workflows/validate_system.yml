@@ -1,7 +1,9 @@
 name: Validate SUT can stand up
 
 on: 
-  #manual run
+  push:
+    branches:
+      - docker-compose-action
 
 jobs:
   build:
