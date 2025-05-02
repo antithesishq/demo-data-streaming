@@ -1,5 +1,8 @@
 name: Validate SUT can stand up
 
+on: 
+  #manual run
+
 jobs:
   build:
     runs-on: ubuntu-latest
