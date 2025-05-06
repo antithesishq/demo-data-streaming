@@ -3,29 +3,106 @@ name: Validate SUT can stand up
 on: 
   push:
     branches:
-      - docker-compose-action
+      - main
+
+# REQUIRED: IF new images are build here & you want to use them, you NEED load: true
+# This will allow access to them in the docker compose up
+
+# Note: With the images we build & images we pull from antithesis image registry, the only images we wouldn't have are from
+# other external repositories. The docker compose up step WILL attempt to pull them. (saw successful ex with a docker.io/etcd image)
+
+# Another Note: Haven't tested a docker compose up with Antithesis registry images or build images above.
+
+env:
+  DOCKER_COMPOSE_PATH: "config/docker-compose.yml"  # path to docker compose in repository
+  ANTITHESIS_IMAGES_TO_PULL: "etcd-client:latest"   # list of images on antithesis image registry separated by a space
+  SLEEP_DURATION: 10                                # Duration to sleep before setup complete
+  CONTAINERS_EXPECTED_TO_BE_RUNNING: "etcd0 etcd1 etcd2 client"   # containers we expect to be running by setup_complete
+  #TODO: add env.REGISTRY & env.REPOSITORY 
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Install Docker using Docker's official script
-        run: | 
+        run: |
             curl -fsSL https://get.docker.com -o get-docker.sh 
             sudo sh get-docker.sh
         continue-on-error: false
+
       - name: Install Docker Compose
         run: |
             sudo curl -L "https://github.com/docker/compose/releases/download/v2.3.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
             sudo chmod +x /usr/local/bin/docker-compose
             docker-compose --version
         continue-on-error: false
-      #TODO: parse docker-compose to get necessary images
-      #TODO: update where we look for the docker-compose
-      - name: Start application-specific services using Docker Compose
-        run: docker-compose up -d
+
+      - name: Login to Antithesis Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: _json_key
+          password: ${{ secrets.JSON_LOGIN_KEY }}
         continue-on-error: false
-      # TODO: sleep
-      # TODO: validate that containers are up
+
+      - name: Pulling specified Antithesis images on the Antithesis registry
+        run: |
+            IMAGES=ANTITHESIS_IMAGES_TO_PULL
+            for image in $IMAGES; do
+              echo "Pulling image: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}/$image"
+              docker pull "${{ env.REGISTRY }}/${{ env.REPOSITORY }}/$image"
+            done
+            
+      - name: Checkout Repository for access
+        uses: actions/checkout@v4
+        continue-on-error: false
+
+      - name: Start application-specific services using Docker Compose
+        run: docker-compose -f $DOCKER_COMPOSE_PATH up -d
+        continue-on-error: false
+
+      - name: Sleep past setup_complete
+        run: |
+            echo "Sleeping for $SLEEP_DURATION seconds"
+            sleep $SLEEP_DURATION
+            echo "Finished sleeping"
+        continue-on-error: false
+  
+      - name: Validate our expected containers are running
+        run: |
+            EXPECTED_CONTAINERS=$CONTAINERS_EXPECTED_TO_BE_RUNNING
+
+            for container in "${EXPECTED_CONTAINERS[@]}"; do
+              CONTAINERS_RUNNING=$(docker ps --filter "name=$container" --filter "status=running" --format "{{.Names}}")
+
+              if [[ ! "$CONTAINER_RUNNING" =~ "$container" ]]; then
+                echo "Error: The container '$container' is not running!"
+                exit 1
+              fi
+              echo "The container '$container' is running."
+            done
+
+            echo "All expected containers are running"
+        continue-on-error: false
+
       # TODO: validate that setup_complete emitted (might need to define another env var)
+      - name: Validate that setup_complete is emitted
+
       # TODO: take "workload" dir as input; dynamically iterate through test composer scripts; ensure they have non-zero exit code
+      - name: Validate Test Composer scripts (exit nonzero)
+
+
+      # Unnecessary / Work to parse images in docker compose (this works)
+      # - name: Parse docker-compose for unique images
+      #   run: |
+      #       exclude=$ANTITHESIS_IMAGES_TO_PULL
+      #       images=$(cat $DOCKER_COMPOSE_PATH | grep "image:" | awk '{print $2}' | sort -u | tr -d "'\"" | tr '\n' ' ')
+      #       echo "Extracted images: $images"
+      #       filtered_images=()
+      #       for img in $images; do
+      #         if [[ ! " $exclude " =~ " $img " ]]; then
+      #           filtered_images+=("$img")
+      #         fi
+      #       done
+      #       echo "Filtered images: ${filtered_images[@]}"
+      #   continue-on-error: false
