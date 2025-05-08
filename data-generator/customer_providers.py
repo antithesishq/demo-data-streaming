@@ -31,14 +31,15 @@ class ContactProvider(BaseProvider):
         self.fake.add_provider(python)
 
         def generate_local():
+            # generate a valid local
             local = f'{self.fake.pystr(10,10)}'
-            print(local)
+            
             invalid_chars = ['!', '#', '$', '%', '^', '&', '*', '=', '{', '}', '[', ']', '|', '\\', '/', ':', ';', '<', '>', ',', '`', '~']
 
             # generate a violation of the local 10% of the time
             if get_random() < (1 << 64) // 10:
+                # add up to 3 violations to the local
                 num_violations = get_random() % 3 + 1
-                print(f"local violations: {num_violations}")
                 for _ in range(num_violations):
                     violations = [
                         f"{local} {self.fake.pystr(1,5)}",              # space
@@ -51,17 +52,17 @@ class ContactProvider(BaseProvider):
                     ]
 
                     local = random_choice(violations)
-                    print(local)
 
             return local
 
         def generate_domain():
+            # generate a valid domain
             domain = random_choice([self.fake.free_email_domain(), self.fake.domain_name(get_random() % 4 + 1)])
-            print(domain)
-
+            
+            # generate a violation of the domain 10% of the time
             if get_random() < (1 << 64) // 10:
+                # add up to 3 violations to the domain
                 num_violations = get_random() % 3 + 1
-                print(f"domain violations: {num_violations}")
                 for _ in range(num_violations):
                     violations = [
                         f"{domain}_bad",                         # underscore
@@ -73,23 +74,27 @@ class ContactProvider(BaseProvider):
                         f"{self.fake.pystr(64,64)}.{domain}"     # subdomain too long
                     ]
                     domain = random_choice(violations)
-                    print(domain)
 
             return domain
 
         def generate_email():
             email = ""
+            local = generate_local()
+            domain = generate_domain()
+
+            # generate a badly structured or empty email 1% of the time
             if get_random() < (1 << 64) // 100:
                 violations = [
-                    f"{generate_local()}{generate_domain()}",   # missing @
-                    f"{generate_local()}@",                     # missing domain
-                    f"@{generate_domain()}",                    # missing local
+                    f"{local}{domain}",   # missing @
+                    f"{local}@",                     # missing domain
+                    f"@{domain}",                    # missing local
                     ""                                          # no email
                 ]
                 email = random_choice(violations)
                 print("email structure violation")
-            else:  
-                email = f"{generate_local()}@{generate_domain()}"
+            else:
+                # generate an email that is structurally sound but may contain other issues
+                email = f"{local}@{domain}"
 
             return email
 
