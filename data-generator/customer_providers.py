@@ -85,13 +85,12 @@ class ContactProvider(BaseProvider):
             # generate a badly structured or empty email 1% of the time
             if get_random() < (1 << 64) // 100:
                 violations = [
-                    f"{local}{domain}",   # missing @
-                    f"{local}@",                     # missing domain
-                    f"@{domain}",                    # missing local
-                    ""                                          # no email
+                    f"{local}{domain}",     # missing @
+                    f"{local}@",            # missing domain
+                    f"@{domain}",           # missing local
+                    ""                      # no email
                 ]
                 email = random_choice(violations)
-                print("email structure violation")
             else:
                 # generate an email that is structurally sound but may contain other issues
                 email = f"{local}@{domain}"
@@ -104,12 +103,18 @@ class ContactProvider(BaseProvider):
         2. Sometimes generate a bad field (give an example of bad or a range of bad) (done)
         3. Sometimes switches the localization (later because some providers are not supported in some locality)
         """
-        return {
+        contact_data = {
             'given_name': self.fake.first_name(),
             'family_name': self.fake.last_name(),
             'email': generate_email(),
             'phone': self.fake.phone_number(),
         }
+
+        # replace a field value with a blank field 1% of the time
+        if get_random() < (1 << 64) // 100:
+            contact_data[random_choice(list(contact_data.keys()))] = ''
+
+        return contact_data
 
 # class ContactValidator(BaseModel):
 #     given_name: str = Field(max_length=32)
