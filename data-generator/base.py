@@ -55,7 +55,7 @@ generator = generate_data()
 
 app = Flask(__name__)
 
-record_types = ['_bank_account', 'contact']
+record_types = ['_bank_account', '_contact']
 record_type = os.environ.get('DATA_TYPE') 
 if record_type not in record_types:
     record_type = '_bank_account'

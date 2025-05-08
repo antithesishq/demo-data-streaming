@@ -9,8 +9,8 @@ from faker.providers import internet # https://faker.readthedocs.io/en/stable/pr
 
 from pydantic import BaseModel, Field
 
-# from antithesis.random import random_choice
-from random import choice as random_choice
+from antithesis.random import random_choice
+# from random import choice as random_choice
 
 
 """
