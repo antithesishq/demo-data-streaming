@@ -11,7 +11,7 @@ A client that constantly ask faker for data and import them into database table
 7. Build entrypoint to wait for postgres and data generator to be ready 
 '''
 
-import psycopg2, requests, os, argparse
+import psycopg2, requests, os, argparse, json
 
 class faker_pgsql():    
     def __init__(self, pg_host:str, pg_user:str, pg_pass:str, pg_db:str, data_generator_endpoint:str) -> None:
@@ -33,58 +33,50 @@ class faker_pgsql():
         return psycopg2.connect(host=self.pg_host,database=self.pg_db,user=self.pg_user, password=self.pg_pass)
 
     def fetch_and_save(self, num_to_get=100):
-        records = self.get_faker_data(num_to_get, 'bank')
+        records = self.get_faker_data(num_to_get)
         self.insert_records(records)
 
-    def create_schema(self, faker_data:str = 'bank') -> None:
+    def create_schema(self) -> None:
         '''
         Create a schema of different Faker types
         '''
         try:
             cursor = self.pg_conn.cursor()
-            # @todo: add more faker data types and maybe serialize the data 
-            if faker_data == 'bank':
-                cursor.execute('''CREATE TABLE producer (
-                    id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    iban VARCHAR(50) NOT NULL,
-                    aba VARCHAR(50) NOT NULL,
-                    swift11 VARCHAR(50) NOT NULL,
-                    bank_country VARCHAR(50) NOT NULL,
-                    produced_timestamp TIMESTAMP DEFAULT NULL,
-                    producer_type VARCHAR(255) DEFAULT NULL,
-                    consumed_timestamp TIMESTAMP DEFAULT NULL,
-                    consumer_type VARCHAR(255) DEFAULT NULL,
-                    consumed_count INT DEFAULT 0
-                )''')
-                self.pg_conn.commit()
+            cursor.execute('''CREATE TABLE producer (
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                data TEXT,
+                produced_timestamp TIMESTAMP DEFAULT NULL,
+                producer_type VARCHAR(255) DEFAULT NULL,
+                consumed_timestamp TIMESTAMP DEFAULT NULL,
+                consumer_type VARCHAR(255) DEFAULT NULL,
+                consumed_count INT DEFAULT 0
+            )''')
+            self.pg_conn.commit()
                 # print(cursor.statusmessage)
         except psycopg2.Error as e:
             print('Error creating db table')
             print("Error connecting to the database:", e)
 
-    def insert_records(self, records:list, faker_data = 'bank') -> None:
+    def insert_records(self, records:list) -> None:
         cursor = self.pg_conn.cursor()
         for record in records:
             self._insert_record(cursor, record)
         self.pg_conn.commit()
 
-    def _insert_record(self, cursor, record:tuple, faker_data:str = 'bank') -> None:
-
+    def _insert_record(self, cursor, record:tuple) -> None:
         # @todo: handling different types of fake data
         # https://www.psycopg.org/docs/cursor.html#cursor.executemany is not more performant
-        if faker_data == 'bank':
-            cursor.execute(
-                "INSERT INTO producer (iban, aba, swift11, bank_country) VALUES  (%s, %s, %s, %s)",
-                record
-            )
+        cursor.execute(
+            "INSERT INTO producer (data) VALUES  (%s)",
+            record
+        )
 
-    def get_faker_data(self, num_to_get:int = 100, faker_data:str = 'bank') -> list:
+    def get_faker_data(self, num_to_get:int = 100) -> list:
 
         headers = {
             "Content-Type": "application/json"
         }
 
-        # @todo: adding params for the data type
         request_url = f'{self.faker_endpoint}/batch/{num_to_get}'
 
         response = requests.get(request_url, headers=headers)
@@ -95,8 +87,9 @@ class faker_pgsql():
         # psycopg expects tuples for inserting
         data = response.json()
         records = []
-        for item in data:
-            record = (item['iban'], item['aba'], item['swift11'], item['bank_country'])
+        for record in data:
+            record = tuple([json.dumps(record)])
+            # record = (item['iban'], item['aba'], item['swift11'], item['bank_country'])
             records.append(record)
 
         return records
@@ -149,8 +142,6 @@ if __name__ == '__main__':
     if bool(missing_envar):
         raise Exception(f"Missing environment variable {missing_envar} to run the data generator client")
 
-    faker_data = 'bank'
-
     try:
         args = parser.parse_args()
         if args.task == 'check_data_store':
@@ -158,7 +149,7 @@ if __name__ == '__main__':
         elif args.task == 'create_schema':
             print('Creating the producer schema on the data store')
             client = faker_pgsql(**client_envars)
-            client.create_schema(faker_data)
+            client.create_schema()
         elif args.task == 'fetch_n_save':
             num_to_get = args.batch_size
             print(f"fetching {num_to_get} records from the data generator and saving them")

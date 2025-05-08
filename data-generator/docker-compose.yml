@@ -3,6 +3,8 @@ services:
     container_name: data_generator
     hostname: data_generator
     image: data_generator:latest
+    environment:
+      DATA_TYPE: _contact
     # volumes:
     #   - ./base.py:/root/base.py
     networks:
@@ -15,6 +17,8 @@ services:
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
       POSTGRES_DB: d
+    networks:
+      - testnet
   # dumping data from data generator to a pgsql database
   data_generator_client:
     container_name: data_generator_client
@@ -28,10 +32,10 @@ services:
       POSTGRES_USER: u
       POSTGRES_DB: d
     # attaching volumes for dev purposes only
-    # volumes:
-    #   - ./pgsql_client.py:/root/pgsql_client.py
+    volumes:
+      - ./pgsql_client.py:/root/pgsql_client.py
     #   - ./pgsql_ep.sh:/root/entrypoint.sh
-    # entrypoint: /root/entrypoint.sh
+    entrypoint: ["sleep", "infinity"]
     networks:
       - testnet
 
