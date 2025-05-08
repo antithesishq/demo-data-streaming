@@ -1,10 +1,11 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i "python3 -i" -p "python311.withPackages(ps: [ ps.faker ps.flask ])"
+#!nix-shell -i "python3 -i" -p "python311.withPackages(ps: [ ps.faker ps.flask ps.pydantic])"
 
-import json
+import json, os
 from flask import Flask
 from faker import Faker
 from faker.providers import bank
+from customer_providers import ContactProvider
 
 class generate_data():
 
@@ -46,25 +47,33 @@ class generate_data():
            'bank_country': self.fake.bank_country(),
         }
 
-# if __name__ == '__main__':
+    def _contact(self):
+        self.fake.add_provider(ContactProvider)
+        return self.fake.generate_contact()
+
 generator = generate_data()
 
 app = Flask(__name__)
+
+record_types = ['_bank_account', 'contact']
+record_type = os.environ.get('DATA_TYPE') 
+if record_type not in record_types:
+    record_type = '_bank_account'
 
 @app.route("/batch/<int:num_records>")
 def get_batch(num_records:int):
     if num_records > 1000:
         num_records = 1000
 
-    return generator.generate_batch(num_records, '_bank_account', False)
+    return generator.generate_batch(num_records, record_type, False)
 
 @app.route("/batch_sequential/<int:num_records>")
 def get_batch_sequential(num_records:int):
     if num_records > 1000:
         num_records = 1000
 
-    return generator.generate_batch(num_records, '_bank_account', True)
+    return generator.generate_batch(num_records, record_type, True)
 
 @app.route("/single")
 def get_single():
-    return generator.generate_single()
+    return generator.generate_single(record_type)
