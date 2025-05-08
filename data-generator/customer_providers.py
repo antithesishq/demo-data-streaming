@@ -41,12 +41,12 @@ class ContactProvider(BaseProvider):
                 print(f"local violations: {num_violations}")
                 for _ in range(num_violations):
                     violations = [
-                        f"{local} {self.fake.pystr(1,5)}",                   # space
-                        f"{local} ({self.fake.pystr(1,5)})",                 # parentheses without quotes
-                        f"{local}..{self.fake.pystr(1,5)}",                  # consecutive dots
+                        f"{local} {self.fake.pystr(1,5)}",              # space
+                        f"{local} ({self.fake.pystr(1,5)})",            # parentheses without quotes
+                        f"{local}..{self.fake.pystr(1,5)}",             # consecutive dots
                         f'{local}"',                                    # dangling quote
                         f'"{local}',                                    # partial quote
-                        f'{local}{self.fake.pystr(64, 64)}',                 # too long
+                        f'{local}{self.fake.pystr(64, 64)}',            # too long
                         f'{local}{random_choice(invalid_chars)}'        # invalid chars
                     ]
 
@@ -64,11 +64,11 @@ class ContactProvider(BaseProvider):
                 print(f"domain violations: {num_violations}")
                 for _ in range(num_violations):
                     violations = [
-                        f"{domain}_bad",                    # underscore
-                        f"-{domain}",                       # starts with hyphen
-                        f"{domain}-",                       # ends with hyphen
+                        f"{domain}_bad",                         # underscore
+                        f"-{domain}",                            # starts with hyphen
+                        f"{domain}-",                            # ends with hyphen
                         f"{domain}..{self.fake.pystr(1,5)}",     # consecutive dots
-                        f".{domain}",                       # starts with dot
+                        f".{domain}",                            # starts with dot
                         f"{self.fake.pystr(255,255)}{domain}",   # too long
                         f"{self.fake.pystr(64,64)}.{domain}"     # subdomain too long
                     ]
