@@ -8,6 +8,10 @@ on:
         description: 'Full moment string (e.g., replay_moment = Moment._exact(...))'
         required: true
         type: string
+      emails:
+        type: string
+        required: true
+        description: Email receipents
 
 jobs:
   manual_run:
