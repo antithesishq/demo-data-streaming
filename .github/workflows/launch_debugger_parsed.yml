@@ -20,10 +20,10 @@ jobs:
         id: extract
         run: |
           input="${{ github.event.inputs.input_string }}"
-          session_id=$(echo $input | sed -n 's/.*id: \([^,}]*\).*/\1/p')
-          value1=$(echo $input | sed -n "s/.*), *'\([^']*\)'.*/\1/p")
-          value2=$(echo $input | sed -n 's/.*,\s*\([0-9]*\.[0-9]*\).*/\1/p')
-      - uses: antithesishq/antithesis-trigger-action@main
+          echo "session_id=$(echo $input | sed -n 's/.*id: \([^,}]*\).*/\1/p')" >> "$GITHUB_OUTPUT"
+          echo "input_hash=$(echo $input | sed -n "s/.*), *'\([^']*\)'.*/\1/p")" >> "$GITHUB_OUTPUT"
+          echo "vtime=$(echo $input | sed -n 's/.*,\s*\([0-9]*\.[0-9]*\).*/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: antithesishq/antithesis-trigger-action@main 
         with:
           notebook_name: launch_debugging
           tenant: demo
