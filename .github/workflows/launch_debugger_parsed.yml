@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       input_string:
-        description: 'Full moment string (e.g., replay_moment = Moment._exact(...))'
+        description: 'Full moment'
         required: true
         type: string
       emails:
