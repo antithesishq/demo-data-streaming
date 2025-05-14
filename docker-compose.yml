@@ -43,16 +43,16 @@ services:
     networks:
       kafka-net:
         ipv4_address: 11.0.0.13
-  data_generator:
-    container_name: data_generator
-    hostname: data_generator
+  data-generator:
+    container_name: data-generator
+    hostname: data-generator
     image: data_generator:latest
     networks:
       kafka-net:
         ipv4_address: 11.0.0.14
-  data_generator_client:
-    container_name: data_generator_client
-    hostname: data_generator_client
+  data-generator-client:
+    container_name: data-generator-client
+    hostname: data-generator-client
     image: pgsql_client:latest
     environment:
       BATCH_SAVE_SIZE: 100 # saving # of records per batch
@@ -64,9 +64,9 @@ services:
     networks:
       kafka-net:
         ipv4_address: 11.0.0.15
-  state_tracker:
-    container_name: state_tracker
-    hostname: state_tracker
+  state-tracker:
+    container_name: state-tracker
+    hostname: state-tracker
     image: docker.io/library/postgres:12.22
     environment:
       POSTGRES_PASSWORD: p
