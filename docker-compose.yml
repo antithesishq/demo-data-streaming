@@ -57,7 +57,7 @@ services:
     environment:
       BATCH_SAVE_SIZE: 100 # saving # of records per batch
       DATA_GENERATOR_ENDPOINT: http://data-generator:5000 # !No trailing slash
-      POSTGRES_HOST: state_tracker
+      POSTGRES_HOST: state-tracker
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
       POSTGRES_DB: d
