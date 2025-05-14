@@ -7,6 +7,7 @@ from faker.providers import phone_number # https://faker.readthedocs.io/en/stabl
 from faker.providers import person # https://faker.readthedocs.io/en/stable/providers/faker.providers.person.html
 from faker.providers import internet # https://faker.readthedocs.io/en/stable/providers/faker.providers.internet.html
 from faker.providers import python
+from faker.providers import bank
 
 from pydantic import BaseModel, Field
 
@@ -16,15 +17,32 @@ from antithesis.random import get_random
 # from random import getrandbits as get_random
 
 
+"""
+Custom providers in faker that integrate randomness from Antithesis
+"""
 
-"""
-Experimenting with custom provider in faker that integrate randomness from Antithesis
-"""
+class BankProvider(BaseProvider):
+
+    def generate_account(self):
+
+        self.fake = Faker()
+        self.fake.seed_instance(get_random())
+        self.fake.add_provider(bank)
+
+        return {
+           'iban': self.fake.iban(),
+           'aba': self.fake.aba(),
+           'swift11': self.fake.swift11(primary=True),
+           'bank_country': self.fake.bank_country(),
+        }
+
+
 class ContactProvider(BaseProvider):
 
     def generate_contact(self):
 
         self.fake = Faker()
+        self.fake.seed_instance(get_random())
         self.fake.add_provider(phone_number)
         self.fake.add_provider(person)
         self.fake.add_provider(internet)
