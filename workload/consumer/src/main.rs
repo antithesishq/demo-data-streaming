@@ -232,7 +232,7 @@ async fn handle(
     
     if pg_client_guard.is_none() {
         *pg_client_guard = Some(
-            Postgres::new("host=state-tracker user=u password=p dbname=d ")
+            Postgres::new("host=state-tracker user=u password=p dbname=d")
             .await
             .map_err(|e| {
                 eprintln!("Failed to initialize Postgres {:?}", e);
