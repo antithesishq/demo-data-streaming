@@ -277,7 +277,7 @@ async fn handle(
     let mut pg_client_guard = state.pg_client.lock().await;
     if pg_client_guard.is_none() {
         *pg_client_guard = Some(
-            Postgres::new("host=state-tracker user=u password=p dbname=d ")
+            Postgres::new("host=state-tracker user=u password=p dbname=d")
             .await
             .map_err(|e| {
                 error!("Failed to initialize Postgres {:?}", e);
