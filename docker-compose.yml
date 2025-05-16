@@ -87,6 +87,13 @@ services:
     networks:
       kafka-net:
         ipv4_address: 11.0.0.17
+  producer-py:
+    image: producer-python:latest
+    hostname: producer-py
+    container_name: producer-py
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.20
   consumer:
     image: consumer:latest
     hostname: consumer

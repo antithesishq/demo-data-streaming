@@ -1,0 +1,13 @@
+services:
+ localstack:
+  image: localstack/localstack:4.4-amd64
+  container_name: localstack
+  hostname: localstack
+  environment:
+    - DEFAULT_REGION=us-east-1
+    - AWS_ACCESS_KEY_ID=test
+    - AWS_DEFAULT_REGION=us-east-1
+    - AWS_SECRET_ACCESS_KEY=test
+    - ENDPOINT_URL=
+  volumes:
+    - ./:/opt/code/localstack/txn_tests
