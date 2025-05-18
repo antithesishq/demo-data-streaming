@@ -129,7 +129,7 @@ impl BankAccount {
 #[derive(Debug, Serialize, Deserialize)]
 struct Transaction {
     sender: String,
-    receiver: String
+    receiver: String,
     sender_amt: u64,
     recipient_amt: u64,
 }

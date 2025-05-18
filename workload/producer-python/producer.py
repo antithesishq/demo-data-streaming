@@ -27,11 +27,11 @@ def on_send_error(e):
 
 @app.route('/txn', methods = ['POST'])
 def produce_txn():
-    producer.begin_transaction()
+    # producer.begin_transaction()
     txn_data = request.json.encode('utf-8')
     print(f'Transaction data: {txn_data}')
     future = producer.send('txn', value=txn_data)
-    producer.commit_transaction()
+    # producer.commit_transaction()
     
     try:
         record_metadata = future.get(timeout=10)
