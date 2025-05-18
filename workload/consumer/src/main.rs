@@ -126,6 +126,14 @@ impl BankAccount {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Transaction {
+    sender: String,
+    receiver: String
+    sender_amt: u64,
+    recipient_amt: u64,
+}
+
 // A context can be used to change the behavior of producers and consumers by adding callbacks
 // that will be executed by librdkafka.
 // This particular context sets up custom callbacks to log rebalancing events.
@@ -264,21 +272,44 @@ async fn handle(
                         match payload {
                             Ok(text) => {
                                 assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
-                                let b_a = serde_json::from_str::<BankAccount>(text.trim())
-                                    .map_err(|e| {
-                                        eprintln!("Can't serialize BankAccount from producer");
-                                        assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
-                                        e
-                                    })
-                                    .unwrap();
-                                println!("Received message: {:?}", b_a);
-                                loop {
-                                    match pg_client.write_consumed(&b_a, &mode).await {
-                                        Ok(_) => { break; },
-                                        Err(e) => {
-                                            eprintln!("Failed to send data to postgres {:?}", e);
-                                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                            println!("Going to retry  {:?}", e);
+                                if topic == "txn" {
+                                    let txn = serde_json::from_str::<Transaction>(text.trim())
+                                        .map_err(|e| {
+                                            eprintln!("Can't deserialize Transaction from producer: {:?}", e);
+                                            assert_unreachable!("Consumer failed to deserialize Transaction", &json!({"error": format!("{:?}", e)}));
+                                            e
+                                        })
+                                        .unwrap();
+                                    
+                                    println!("Received txn: {:?}", txn);
+                                
+                                    let result = txn.sender_amt + txn.recipient_amt;
+                                    println!("Addition result: {} + {} = {}", txn.sender_amt, txn.recipient_amt, result);
+                                
+                                    assert_sometimes!(true, "Txn addition successful", &json!({
+                                        "sender": txn.sender,
+                                        "receiver": txn.receiver,
+                                        "sum": result
+                                    }));
+                                } else {
+                                    let b_a = serde_json::from_str::<BankAccount>(text.trim())
+                                        .map_err(|e| {
+                                            eprintln!("Can't serialize BankAccount from producer");
+                                            assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
+                                            e
+                                        })
+                                        .unwrap();
+                                
+                                    println!("Received message: {:?}", b_a);
+                                
+                                    loop {
+                                        match pg_client.write_consumed(&b_a, &mode).await {
+                                            Ok(_) => break,
+                                            Err(e) => {
+                                                eprintln!("Failed to send data to postgres {:?}", e);
+                                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                                println!("Going to retry  {:?}", e);
+                                            }
                                         }
                                     }
                                 }
