@@ -75,6 +75,9 @@ push-consumer:
 push-producer:
 	customer credentials_shell -c "podman push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:latest"
 
+push-producer-py:
+	customer credentials_shell -c "podman push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer-py:latest"
+
 push-validator:
 	customer credentials_shell -c "podman push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/validator:latest"
 

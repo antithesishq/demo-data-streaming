@@ -11,7 +11,8 @@ RUN python3 get-pip.py
 RUN pip install faker flask requests antithesis
 
 COPY ./base.py /root/base.py 
-COPY ./parallel_driver_transaction.py /opt/antithesis/test/v1/txn/parallel_driver_transaction.py
+COPY ./parallel_driver_produce_transaction.py /opt/antithesis/test/v1/txn/parallel_driver_produce_transaction.py
+COPY ./parallel_driver_consumer_passthrough_txn.py /opt/antithesis/test/v1/txn/parallel_driver_consumer_passthrough_txn.py
 
 WORKDIR /root
 
