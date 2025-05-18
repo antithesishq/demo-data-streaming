@@ -27,6 +27,13 @@ build-producer:
 		-t producer:latest \
 		workload/producer
 
+build-producer-py:
+	podman build \
+		-f ./workload/producer/Dockerfile \
+		-t us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:latest \
+		-t producer-py:latest \
+		workload/producer-py
+
 build-validator:
 	podman build \
 		-f ./workload/validator/Dockerfile \

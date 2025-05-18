@@ -6,4 +6,5 @@ RUN apt-get -y update && apt-get -y install curl nano bash
 COPY ./producer.py /root/producer.py 
 WORKDIR /root
 
-ENTRYPOINT ["flask", "--app", "producer", "run", "--host=0.0.0.0"]
+ENTRYPOINT ["sleep", "infinity"]
+# ENTRYPOINT ["flask", "--app", "producer", "run", "--host=0.0.0.0"]

@@ -91,6 +91,8 @@ services:
     image: producer-python:latest
     hostname: producer-py
     container_name: producer-py
+    volumes:
+      - ./workload/producer-python:/root/server
     networks:
       kafka-net:
         ipv4_address: 11.0.0.20

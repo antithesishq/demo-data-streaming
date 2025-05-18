@@ -8,9 +8,10 @@ apt-get -y install curl nano bash
 RUN wget https://bootstrap.pypa.io/get-pip.py
 RUN python3 get-pip.py
 
-RUN pip install faker flask
+RUN pip install faker flask requests
 
 COPY ./base.py /root/base.py 
+COPY ./parallel_driver_transaction.py /opt/antithesis/test/v1/txn/parallel_driver_transaction.py
 
 WORKDIR /root
 
