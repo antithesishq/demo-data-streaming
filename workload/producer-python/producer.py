@@ -31,6 +31,7 @@ def produce_txn():
     txn_data = request.json.encode('utf-8')
     print(f'Transaction data: {txn_data}')
     future = producer.send('txn', value=txn_data)
+    producer.commit_transaction()
     
     try:
         record_metadata = future.get(timeout=10)
