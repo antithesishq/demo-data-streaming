@@ -1,3 +1,5 @@
+#!/usr/bin/env -S python3 -u
+
 import json
 import requests
 from antithesis.random import get_random
