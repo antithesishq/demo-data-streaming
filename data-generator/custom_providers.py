@@ -23,6 +23,8 @@ Custom providers in faker that integrate randomness from Antithesis
 
 class BankProvider(BaseProvider):
 
+    # todo: cannot use 
+
     def generate_account(self):
 
         self.fake = Faker()
@@ -35,7 +37,6 @@ class BankProvider(BaseProvider):
            'swift11': self.fake.swift11(primary=True),
            'bank_country': self.fake.bank_country(),
         }
-
 
 class ContactProvider(BaseProvider):
 

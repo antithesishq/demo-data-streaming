@@ -11,7 +11,7 @@ RUN python3 get-pip.py
 RUN pip install faker flask antithesis pydantic
 
 COPY ./base.py /root/base.py
-COPY ./customer_providers.py /root/customer_providers.py 
+COPY ./custom_providers.py /root/custom_providers.py 
 
 WORKDIR /root
 

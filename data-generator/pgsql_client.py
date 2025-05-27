@@ -73,13 +73,17 @@ class faker_pgsql():
 
     def get_faker_data(self, num_to_get:int = 100) -> list:
 
-        headers = {
-            "Content-Type": "application/json"
+        # headers = {
+        #     "Content-Type": "application/json"
+        # }
+
+        data = {
+            'data_type': os.getenv('DATA_TYPE')
         }
 
         request_url = f'{self.faker_endpoint}/batch/{num_to_get}'
 
-        response = requests.get(request_url, headers=headers)
+        response = requests.post(request_url, data=data)
 
         if response.status_code != 200:
             raise Exception(f"Request to {request_url} resulted in status {response.status_code} and {response.text}")
