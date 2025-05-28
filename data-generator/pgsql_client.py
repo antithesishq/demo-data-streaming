@@ -45,6 +45,7 @@ class faker_pgsql():
             cursor.execute('''CREATE TABLE producer (
                 id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 data TEXT,
+                topic VARCHAR(255) DEFAULT NULL,
                 produced_timestamp TIMESTAMP DEFAULT NULL,
                 producer_type VARCHAR(255) DEFAULT NULL,
                 consumed_timestamp TIMESTAMP DEFAULT NULL,
@@ -67,7 +68,7 @@ class faker_pgsql():
         # @todo: handling different types of fake data
         # https://www.psycopg.org/docs/cursor.html#cursor.executemany is not more performant
         cursor.execute(
-            "INSERT INTO producer (data) VALUES  (%s)",
+            "INSERT INTO producer (data, topic) VALUES  (%s, %s)",
             record
         )
 
@@ -77,9 +78,18 @@ class faker_pgsql():
         #     "Content-Type": "application/json"
         # }
 
+        data_type = os.getenv('DATA_TYPE')
         data = {
-            'data_type': os.getenv('DATA_TYPE')
+            'data_type': data_type
         }
+
+        # @todo: super bad for now but we need additional request data
+        # we will have to search for accounts first in the state tracker
+        if data_type == '_banktest_transaction':
+            bank_account_ids = self.get_bank_accounts()
+            if not bool(bank_account_ids):
+                raise Exception("No bank accounts found under the topic _banktest_fund_account in the state tracker")
+            data['account_ids'] = json.dumps(bank_account_ids)
 
         request_url = f'{self.faker_endpoint}/batch/{num_to_get}'
 
@@ -92,11 +102,30 @@ class faker_pgsql():
         data = response.json()
         records = []
         for record in data:
-            record = tuple([json.dumps(record)])
+            record = (json.dumps(record), data_type)
             # record = (item['iban'], item['aba'], item['swift11'], item['bank_country'])
             records.append(record)
 
         return records
+
+    def get_bank_accounts(self) -> list:
+        """
+        Get all bank accounts in the state tracker for transaction spamming
+        This is needed for bank test workload only
+        """
+        try:
+            cursor = self.pg_conn.cursor()
+            cursor.execute("SELECT data FROM producer WHERE topic = '_banktest_fund_account'")
+            accounts = cursor.fetchall()
+
+            ibans = []
+            for account in accounts:
+                _account = json.loads(account[0])
+                ibans.append(_account['iban'])
+            return ibans
+        except psycopg2.Error as e:
+            print(f'Error: no bank accounts found with error {e}')
+            return []
 
 def check_connection(pg_host, pg_db, pg_user, pg_pass, data_generator_endpoint):
     conn = psycopg2.connect(host=pg_host,database=pg_db,user=pg_user, password=pg_pass)
@@ -117,6 +146,7 @@ if __name__ == '__main__':
             "check_data_store",
             "create_schema",
             "fetch_n_save",
+            "test"
         ],
         default="fetch_n_save"
     )
@@ -159,6 +189,9 @@ if __name__ == '__main__':
             print(f"fetching {num_to_get} records from the data generator and saving them")
             client = faker_pgsql(**client_envars)
             client.fetch_and_save(num_to_get)
+        elif args.task == 'test':
+            client = faker_pgsql(**client_envars)
+            print(client.get_bank_accounts())
 
     except argparse.ArgumentError as e:
         print(f'An error has occured {str(e)}')

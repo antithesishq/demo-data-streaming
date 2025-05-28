@@ -6,6 +6,7 @@ from flask import Flask, request
 from faker import Faker
 from custom_providers import ContactProvider
 from custom_providers import BankProvider
+from custom_providers import BankTestProivider
 
 class generate_data():
 
@@ -43,10 +44,34 @@ class generate_data():
         self.fake.add_provider(ContactProvider)
         return self.fake.generate_contact()
 
+    def _banktest_fund_account(self):
+        self.fake.add_provider(BankTestProivider)
+        #todo, possibly randomly fund the account
+        return self.fake.generate_and_fund_account(initial_funding_amount=1000)
+
+    def _banktest_transaction(self):
+        self.fake.add_provider(BankTestProivider)
+
+        # test only
+        # randomly get 20 accounts
+        # ibans = []
+        # for i in range(20):
+        #     account = self.fake.generate_and_fund_account(initial_funding_amount=1000)
+        #     ibans.append(account['iban'])
+        # account_ids = []
+        # if 'account_ids' in request.form:
+        #     _account_ids = request.form(account_ids)
+        #     account_ids = json.loads(_account_ids)
+
+        account_ids = json.loads(request.form['account_ids'])
+        return self.fake.generate_transaction(account_ids, max_amount = 100)
+
+        return request.form['account_ids']
+        # return self.fake.generate_transaction(account_ids, max_amount = 100)
 
 def request_data_type():
 
-    valid_data_types = ['_bank_account', '_contact']
+    valid_data_types = ['_bank_account', '_banktest_fund_account', '_banktest_transaction', '_contact']
 
     # default data type
     data_type = '_bank_account'

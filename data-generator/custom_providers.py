@@ -135,6 +135,28 @@ class ContactProvider(BaseProvider):
 
         return contact_data
 
+class BankTestProivider(BankProvider):
+
+    def generate_and_fund_account(self, initial_funding_amount:int = 1000):
+        '''
+        Generate a bank account and fund it
+        '''
+        bank_detail = BankProvider.generate_account(self)
+        bank_detail['amount'] = initial_funding_amount
+        return bank_detail
+
+    def generate_transaction(self, account_ids:list, max_amount:int = 100):
+        
+        account_from = random_choice(account_ids)
+        account_to = random_choice(account_ids)
+        amount_to_transfer = get_random() % max_amount
+
+        return {
+            'from': account_from,
+            'to': account_to,
+            'amount': amount_to_transfer,
+        }
+
 # class ContactValidator(BaseModel):
 #     given_name: str = Field(max_length=32)
 #     family_name: str = Field(max_length=32)
