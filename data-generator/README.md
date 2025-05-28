@@ -13,11 +13,11 @@ Inside of the directory use docker-compose up -d or similar command
 The data generator client will continuously fetch (environment variable $BATCH_SAVE_SIZE) number of fake data from the data generator and save them into the database. There is a small 1 second sleep between each fetch and import.
 
 ## Manual usage
-The data generator can be reached at http://data_generator:5000, there are several endpoints at the moment:
+The data generator can be reached at http://data-generator:5000, there are several endpoints at the moment:
 
-* http://data_generator:5000/single 
-* http://data_generator:5000/batch 
-* http://data_generator:5000/batch_sequential
+* http://data-generator:5000/single 
+* http://data-generator:5000/batch 
+* http://data-generator:5000/batch_sequential
 
 The difference between batch and batch_sequential is the latter will have a field called "serial_id" 
 
