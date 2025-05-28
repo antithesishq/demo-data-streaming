@@ -135,7 +135,7 @@ class ContactProvider(BaseProvider):
 
         return contact_data
 
-class BankTestProivider(BankProvider):
+class BankTestProvider(BankProvider):
 
     def generate_and_fund_account(self, initial_funding_amount:int = 1000):
         '''

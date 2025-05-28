@@ -6,7 +6,7 @@ from flask import Flask, request
 from faker import Faker
 from custom_providers import ContactProvider
 from custom_providers import BankProvider
-from custom_providers import BankTestProivider
+from custom_providers import BankTestProvider
 
 class generate_data():
 
@@ -45,12 +45,12 @@ class generate_data():
         return self.fake.generate_contact()
 
     def _banktest_fund_account(self):
-        self.fake.add_provider(BankTestProivider)
+        self.fake.add_provider(BankTestProvider)
         #todo, possibly randomly fund the account
         return self.fake.generate_and_fund_account(initial_funding_amount=1000)
 
     def _banktest_transaction(self):
-        self.fake.add_provider(BankTestProivider)
+        self.fake.add_provider(BankTestProvider)
 
         # test only
         # randomly get 20 accounts
