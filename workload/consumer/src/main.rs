@@ -128,6 +128,19 @@ impl DynamoDB {
                     .build()
             )
             .build()
+
+        let resp = client
+            .transact_write_items()
+            .transact_items(update_sender, update_receiver)
+            .send()
+            .await;
+
+        match resp {
+            Ok(()) => assert_sometimes!(false, "Transactions succeeded", &json!({
+                "sender": b_t.sender, "receiver": b_t.receiver, "amount": b_t.amount
+            }));
+            Error(e) =>  assert_sometimes!(false, "Transaction failed", &json!({"error": format!("Transaction failed: {}", e)}));
+        }
     }
 }
 
