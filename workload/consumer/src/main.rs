@@ -37,6 +37,8 @@ use axum::{
 
 use antithesis_sdk::prelude::*;
 
+use aws_sdk_dynamodb::{Client, Error};
+
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use serde_json::json;
@@ -91,6 +93,32 @@ impl Postgres {
                 e
             })?;
         Ok(())
+    }
+}
+
+impl DynamoDB {
+    pub async fn new() -> Result<(), Error> {
+        let shared_config = aws_config::load_from_env().await;
+        let client = Client::new(&shared_config);
+        let req = client.list_tables().limit(10);
+        let resp = req.send().await?;
+        println!("Current DynamoDB tables: {:?}", resp.table_names);
+        Ok(())
+    }
+
+    async fn write_consumed(&self, b_t: &BankTransaction, mode: &KafkaConsumers) -> Result<(), Error> {
+        statements = vec![
+            format!("
+                UPDATE accounts
+                SET balance = balance - {}
+                WHERE account_id='{}'
+            ", b_t.amount, b_t.sender),
+            format!("
+                UPDATE accounts
+                SET balance = balance + {}
+                WHERE account_id='{}'
+            ", b_t.amount, b_t.receiver)
+        ]
     }
 }
 
