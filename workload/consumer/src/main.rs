@@ -107,18 +107,27 @@ impl DynamoDB {
     }
 
     async fn write_consumed(&self, b_t: &BankTransaction, mode: &KafkaConsumers) -> Result<(), Error> {
-        statements = vec![
-            format!("
-                UPDATE accounts
-                SET balance = balance - {}
-                WHERE account_id='{}'
-            ", b_t.amount, b_t.sender),
-            format!("
-                UPDATE accounts
-                SET balance = balance + {}
-                WHERE account_id='{}'
-            ", b_t.amount, b_t.receiver)
-        ]
+        let update_sender = TransactWriteItem::builder()
+            .update(
+                Update::builder()
+                    .table_name("accounts")
+                    .key("account_id", b_t.sender)
+                    .update_expression("SET balance = balance - :amt")
+                    .expression_attribute_values(":amt", b_t.amount)
+                    .build()
+            )
+            .build()
+        
+        let update_receiver = TransactWriteItem::builder()
+            .update(
+                Update::builder()
+                    .table_name("accounts")
+                    .key("account_id", b_t.receiver)
+                    .update_expression("SET balance = balance + :amt")
+                    .expression_attribute_values(":amt", b_t.amount)
+                    .build()
+            )
+            .build()
     }
 }
 
