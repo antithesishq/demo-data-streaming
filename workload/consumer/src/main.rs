@@ -126,6 +126,21 @@ impl BankAccount {
     }
 }
 
+impl BankTransaction {
+    fn from_row(row: &Row) -> Self {
+        BankTransaction {
+            sender: row.get("sender"),
+            receiver: row.get("receiver"),
+            amount: row.get("amount"),
+            produced_timestamp: row.try_get("produced_timestamp").ok(),
+            producer_type: row.try_get("producer_type").ok(),
+            consumed_timestamp: row.try_get("consumed_timestamp").ok(),
+            consumer_type: row.try_get("consumer_type").ok(),
+            consumed_count: row.get("consumed_count")
+        }
+    }
+}
+
 // A context can be used to change the behavior of producers and consumers by adding callbacks
 // that will be executed by librdkafka.
 // This particular context sets up custom callbacks to log rebalancing events.
