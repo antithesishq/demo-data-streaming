@@ -97,6 +97,11 @@ impl Postgres {
 }
 
 impl DynamoDB {
+    /* TODO
+       - persist bank account
+       - persist to psql (assumption is only persist after transaction successful)
+     */
+
     pub async fn new() -> Result<(), Error> {
         let shared_config = aws_config::load_from_env().await;
         let client = Client::new(&shared_config);
@@ -363,7 +368,6 @@ async fn handle(
                             /* TODO
                                - read sender + receiver from dynamo
                                - persist transaction in dynamo
-                               - persist consumption in psql
                             */ 
                         
                     }
