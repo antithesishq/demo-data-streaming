@@ -275,34 +275,47 @@ async fn handle(
             match consumer.recv().await {
                 Ok(message) => {
                     assert_sometimes!(true, "Consumer consumed data", &json!({"value": format!("{:?}", message)}));
-                    if let Some(payload) = message.payload_view::<str>() {
-                        match payload {
-                            Ok(text) => {
-                                assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
-                                let b_a = serde_json::from_str::<BankAccount>(text.trim())
-                                    .map_err(|e| {
-                                        eprintln!("Can't serialize BankAccount from producer");
-                                        assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
-                                        e
-                                    })
-                                    .unwrap();
-                                println!("Received message: {:?}", b_a);
-                                loop {
-                                    match pg_client.write_consumed(&b_a, &mode).await {
-                                        Ok(_) => { break; },
-                                        Err(e) => {
-                                            eprintln!("Failed to send data to postgres {:?}", e);
-                                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                            println!("Going to retry  {:?}", e);
+                    match topic {
+                        "bank" => 
+                        /* TODO
+                           - persist data in dynamo
+                         */
+                        if let Some(payload) = message.payload_view::<str>() {
+                            match payload {
+                                Ok(text) => {
+                                    assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
+                                    let b_a = serde_json::from_str::<BankAccount>(text.trim())
+                                        .map_err(|e| {
+                                            eprintln!("Can't serialize BankAccount from producer");
+                                            assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
+                                            e
+                                        })
+                                        .unwrap();
+                                    println!("Received message: {:?}", b_a);
+                                    loop {
+                                        match pg_client.write_consumed(&b_a, &mode).await {
+                                            Ok(_) => { break; },
+                                            Err(e) => {
+                                                eprintln!("Failed to send data to postgres {:?}", e);
+                                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                                println!("Going to retry  {:?}", e);
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("Failed to decode message payload: {}", e);
-                                assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
-                            },
+                                },
+                                Err(e) => {
+                                    eprintln!("Failed to decode message payload: {}", e);
+                                    assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
+                                },
+                            }
                         }
+                        "transaction" => 
+                            /* TODO
+                               - read sender + receiver from dynamo
+                               - persist transaction in dynamo
+                               - persist consumption in psql
+                            */ 
+                        
                     }
                     count += 1;
                 }
