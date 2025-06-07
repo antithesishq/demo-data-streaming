@@ -30,9 +30,10 @@ use axum::{
     body::Body,
     extract::{State, Json, Extension, Path},
     middleware::{self, Next},
-    response::{Response, Json as ResponseJson},
+    response::{Response, Json as ResponseJson, IntoResponse},
     routing::post,
     Router,
+    http::StatusCode
 };
 
 use antithesis_sdk::prelude::*;
@@ -81,14 +82,17 @@ impl Postgres {
         self.client
             .execute(update, &[&current_timestamp, &mode.get_route(), &(b_a.id)]) // Assuming id is SERIAL (i32 in DB)
             .await
-            .and_then(|d| {
-                assert_sometimes!(true, "Recorded data consumed from Kafka to state_tracker", &json!({"result": b_a}));
-                Ok(d)
+            .inspect(|d| {
+                if *d > 0 {
+                    println!("postgres: b_a: {:?}, Updated timestamp: {}, Updated route: {}, d: {}", &b_a, &current_timestamp, &mode.get_route(), &d);
+                    assert_sometimes!(true, "Recorded data consumed from Kafka to state-tracker", &json!({"result": b_a}));
+                } else {
+                    eprintln!("postgres: I guess we updated nothing...: {}", &d);
+                }
             })
-            .map_err(|e| {
-                eprintln!("Failed to update timestamp: {}", e);
-                assert_sometimes!(false, "Recorded data consumed from Kafka to state_tracker", &json!({"error": format!("Failed to update timestamp {}", e)}));
-                e
+            .inspect_err(|e| {
+                eprintln!("postgres: Failed to update timestamp: {}", e);
+                assert_sometimes!(false, "Recorded data consumed from Kafka to state-tracker", &json!({"error": format!("Failed to update timestamp {}", e)}));
             })?;
         Ok(())
     }
@@ -214,7 +218,13 @@ async fn add_context_middleware(
 ) -> Response {
     println!("middleware: adding context to request");
     req.extensions_mut().insert(context);
-    next.run(req).await
+    match tokio::spawn(next.run(req)).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            eprintln!("middleware: task failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn handle(
@@ -232,27 +242,27 @@ async fn handle(
     
     if pg_client_guard.is_none() {
         *pg_client_guard = Some(
-            Postgres::new("host=state_tracker user=u password=p dbname=d ")
+            Postgres::new("host=state-tracker user=u password=p dbname=d ")
             .await
             .map_err(|e| {
-                eprintln!("Failed to initialize Postgres {:?}", e);
+                eprintln!("postgres: Failed to initialize Postgres {:?}", e);
                 e
             })
             .unwrap()
         );
-        assert_reachable!("Consumer created connection to state_tracker", &json!({}));
+        assert_reachable!("Consumer created connection to state-tracker", &json!({}));
     }
 
     if let Some(pg_client) = &*pg_client_guard {
         consumer.subscribe(&[&topic])
             .map_err(|e| {
-                eprintln!("Can't subscribe to specified topics: {}", e);
+                eprintln!("kafka: Can't subscribe to specified topics: {}", e);
                 assert_sometimes!(false, "Consumer subscribed to topic", &json!({"error": format!("Can't subscribe to specified topics: {}", e)}));
                 e
             })
             .unwrap();
         
-        println!("Subbed to topic");
+        println!("kafka: Subbed to topic");
         assert_sometimes!(true, "Consumer subscribed to topic", &json!({"value": topic}));
 
         let mut count = 0;
@@ -266,25 +276,28 @@ async fn handle(
                                 assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
                                 let b_a = serde_json::from_str::<BankAccount>(text.trim())
                                     .map_err(|e| {
-                                        eprintln!("Can't serialize BankAccount from producer");
+                                        eprintln!("kafka: Can't serialize BankAccount from producer");
                                         assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
                                         e
                                     })
                                     .unwrap();
-                                println!("Received message: {:?}", b_a);
+                                println!("kafka: Received message: {:?}", b_a);
                                 loop {
                                     match pg_client.write_consumed(&b_a, &mode).await {
-                                        Ok(_) => { break; },
+                                        Ok(_) => {
+                                            println!("postgres: update complete");
+                                            break; 
+                                        },
                                         Err(e) => {
-                                            eprintln!("Failed to send data to postgres {:?}", e);
+                                            eprintln!("postgres: Failed to send data to postgres {:?}", e);
                                             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                            println!("Going to retry  {:?}", e);
+                                            println!("postgres: Going to retry  {:?}", e);
                                         }
                                     }
                                 }
                             },
                             Err(e) => {
-                                eprintln!("Failed to decode message payload: {}", e);
+                                eprintln!("kafka: Failed to decode message payload: {}", e);
                                 assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
                             },
                         }
@@ -292,7 +305,7 @@ async fn handle(
                     count += 1;
                 }
                 Err(e) => {
-                    eprintln!("Error while consuming: {}", e);
+                    eprintln!("kafka: Error while consuming: {}", e);
                     assert_sometimes!(false, "Consumer consumed data", &json!({"error": format!("Error while consuming: {}", e)}));
 
                 }

@@ -8,14 +8,22 @@ use log::{debug, error, info, warn};
 use rdkafka::config::ClientConfig;
 use rdkafka::message::{OwnedHeaders, Header, Headers};
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::Producer;
 use rdkafka::util::get_rdkafka_version;
+use rdkafka::util::Timeout;
+use rdkafka::error::KafkaError;
+
 use env_logger;
+use rand::Rng;
+use anyhow::{anyhow, Result};
 
 use reqwest;
 
 use tokio::runtime::Handle;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
+
 use std::sync::Arc;
 use std::collections::HashMap;
 // use std::error::Error;
@@ -50,7 +58,7 @@ use chrono;
 // Define shared state
 #[derive(Clone)]
 struct AppState {
-    producers: Arc<Mutex<HashMap<String, FutureProducer>>>,
+    producers: Arc<Mutex<HashMap<String, KafkaProducer>>>,
     brokers: Vec<&'static str>,
     pg_client: Arc<Mutex<Option<Postgres>>>
     // faker_endpoints: Vec<&'static str>
@@ -65,24 +73,95 @@ enum KafkaProducers {
 }
 
 impl KafkaProducers {
-    fn create_config(&self, brokers: &Vec<&str>) -> FutureProducer {
+    fn get_route(&self) -> &'static str {
         match self {
+            KafkaProducers::ExactlyOnce => "/exactly_once_single",
+            KafkaProducers::ExactlyOnceBatch => "/exactly_once_batch",
+            KafkaProducers::AtLeastOnce => "/atleast_once_single",
+            KafkaProducers::AtLeastOnceBatch => "/atleast_once_batch"
+        }
+    }
+}
+
+struct KafkaProducer {
+    kind: KafkaProducers,
+    producer: Option<FutureProducer>
+}
+
+
+
+fn is_fatal_error(err: &KafkaError) -> bool {
+    match err {
+        KafkaError::Transaction(e) => e.is_fatal(),
+        KafkaError::MessageProduction(code)
+        | KafkaError::MessageConsumption(code)
+        | KafkaError::MessageConsumptionFatal(code)
+        | KafkaError::Flush(code)
+        // | KafkaError::Commit(code)
+        | KafkaError::MetadataFetch(code)
+        | KafkaError::GroupListFetch(code)
+        | KafkaError::OffsetFetch(code)
+        | KafkaError::StoreOffset(code) => false, // Setting all these not fatal unless proven otherwise
+        // | KafkaError::ConsumerCommit(code) => code.is_fatal()
+        // KafkaError::Subscription(code_str) =>
+        // | KafkaError::Seek(code) => probable not that bad
+        _ => false,
+    }
+}
+
+
+impl KafkaProducer {
+    fn safe_init_transaction(&self, producer: FutureProducer) -> Result<FutureProducer, anyhow::Error> {
+        loop {
+            match producer.init_transactions(Timeout::Never){
+                Ok(_) => {
+                    println!("kafka: initializing a transactional state with kafka {} producer", self.kind.get_route());
+                    assert_reachable!("Initialized kafka producer with transactional state", &json!({"failed": format!("{}", self.kind.get_route())}));
+                    break;
+                }
+                // Err(KafkaError::ClientConfig(e, ..) | KafkaError::MessageProduction(e)) => { // Properly handle all error variants in future instead of retrying like a dum dum https://docs.rs/rdkafka/latest/rdkafka/error/enum.KafkaError.html
+                //     eprintln!("kafka: failed to initialize transactional state with kafka {} producer", self.kind.get_route());
+                //     assert_unreachable!("Unrecoverable error during Kafka producer transactional state initialization", &json!({"error": format!("{} {:?}", self.kind.get_route(), e)}));
+                //     return Err(anyhow!("Unrecoverable {} producer transactional state initialization error: {:?}", self.kind.get_route(), e));
+                // }
+                Err(e) => {
+                    if is_fatal_error(&e) {
+                        eprintln!("kafka: failed to initialize transactional state with kafka {} producer", self.kind.get_route());
+                        assert_unreachable!("Unrecoverable error during Kafka producer transactional state initialization", &json!({"error": format!("{} {:?}", self.kind.get_route(), e)}));
+                        return Err(anyhow!("Unrecoverable {} producer transactional state initialization error: {:?}", self.kind.get_route(), e));
+                    } else {
+                        eprintln!("kafka: failed to initialize transactional state {} producer {:?}, retrying...",self.kind.get_route(), e);
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                    }
+                }
+            }
+        }
+        Ok(producer)
+    }
+
+    fn create_config(&mut self, brokers: &Vec<&str>) {
+        let config = match self.kind {
             KafkaProducers::ExactlyOnce => {
-                let c = ClientConfig::new()
+                let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
+                    .set("transactional.id", "eactly_once_id")
+                    .set("enable.idempotence", "true")
                     .set("debug", "all")
                     .set("retries", "5") // For exactly-once, higher retries
                     .set("acks", "all")  // Ensure all replicas acknowledge
                     .create::<FutureProducer>()
-                    .expect("exactly once producer creation error");
+                    .expect("kafka: exactly once producer creation error");
+                println!("kafka: creating exactly once kafka producer");
                 assert_reachable!("Created \'Exactly Once\' Kafka producer", &json!({}));
-                c
+                self.safe_init_transaction(producer).unwrap()
             },
             KafkaProducers::ExactlyOnceBatch => {
-                let c = ClientConfig::new()
+                let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
+                    .set("transactional.id", "eactly_once_id")
+                    .set("enable.idempotence", "true")
                     .set("debug", "all")
                     .set("retries", "5") // For exactly-once, higher retries
                     .set("acks", "all")
@@ -91,21 +170,23 @@ impl KafkaProducers {
                     .set("compression.type", "gzip")  // Ensure all replicas acknowledge
                     .create::<FutureProducer>()
                     .expect("exactly once batch producer creation error");
+                println!("kafka: creating exactly once batch kafka producer");
                 assert_reachable!("Created \'Exactly Once Batch\' Kafka producer", &json!({}));
-                c
+                self.safe_init_transaction(producer).unwrap()
             },
             KafkaProducers::AtLeastOnce => {
-                let c = ClientConfig::new()
+                let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
                     .set("debug", "all")
                     .create()
-                    .expect("exactly once producer creation error");
+                    .expect("kafka: atleast once producer creation error");
+                println!("kafka: creating atleast once kafka producer");
                 assert_reachable!("Created \'Atleast Once\' Kafka producer", &json!({}));
-                c
+                producer
             },
             KafkaProducers::AtLeastOnceBatch => {
-                let c = ClientConfig::new()
+                let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
                     .set("debug", "all")
@@ -113,19 +194,112 @@ impl KafkaProducers {
                     .set("linger.ms", "5") // Wait for 5ms before sending a batch, useful with for loops
                     .set("compression.type", "gzip") // Use gzip compression
                     .create()
-                    .expect("atleast once batch producer creation error");
+                    .expect("kafka: atleast once batch producer creation error");
+                println!("kafka: creating atleast once batch kafka producer");
                 assert_reachable!("Created \'Atleast Once Batch\' Kafka producer", &json!({}));
-                c
+                producer
             }
-        }
+        };
+        self.producer = Some(config);
     }
 
     fn get_route(&self) -> &'static str {
-        match self {
-            KafkaProducers::ExactlyOnce => "/exactly_once_single",
-            KafkaProducers::ExactlyOnceBatch => "/exactly_once_batch",
-            KafkaProducers::AtLeastOnce => "/atleast_once_single",
-            KafkaProducers::AtLeastOnceBatch => "/atleast_once_batch"
+        self.kind.get_route()
+    }
+
+    pub async fn safe_send(&self, topic: &str, msg: &str, key: &str) -> Result<(), anyhow::Error> {
+        match self.kind {
+            KafkaProducers::ExactlyOnce | KafkaProducers::ExactlyOnceBatch => {
+                println!("kafka: wow");
+                loop {
+                    match self.producer.as_ref().unwrap().begin_transaction() {
+                        Ok(_) => {
+                            println!("kafka: successfully began transaction with topic {} id {} msg {}", &topic, &key, &msg);
+                            assert_sometimes!(true, "Successfully began transaction", &json!({"result": format!("topic {}, id {}, msg {}", &topic, &key, &msg)}));
+                            break;
+                        },
+                        Err(e) => {
+                            eprintln!("kafka: failed to begin transaction with topic {} id {} msg {}: retrying..., error: {}", &topic, &key, &msg, e);
+                            assert_sometimes!(false, "Successfully began transaction", &json!({"error": format!("{}", e)}));
+                            sleep(Duration::from_secs(1));
+                        }
+                    }
+                }
+                loop {
+                    let send_status = self.producer.as_ref().unwrap().send(
+                        FutureRecord::to(topic)
+                            .payload(msg)
+                            .key(key)
+                            .partition(0),
+                        Duration::from_secs(60),
+                    ).await;
+                    match send_status {
+                        Ok(_) => {
+                            println!("kafka: successfully produced transaction with topic {}, id {}, msg {}", &topic, &key, &msg);
+                            assert_sometimes!(true, "Successfully produced transaction", &json!({"result": format!("topic {}, id {}, msg {}", &topic, &key, &msg)}));
+                            break;
+                        },
+                        Err((e, _message)) => {
+                            eprintln!("kafka: failed to produce transaction with topic {}, id {}, msg {}, error {}, retrying..., ", &topic, &key, &msg, e);
+                            assert_sometimes!(false, "Successfully produced transaction", &json!({"error": format!("{}", e)}));
+                            sleep(Duration::from_secs(1));
+                        }
+                    }
+                }
+                loop {
+                    match self.producer.as_ref().unwrap().commit_transaction(Timeout::Never) {
+                        Ok(_) => {
+                            println!("kafka: transaction committed successfully with topic {}, id {}, msg {}", &topic, &key, &msg);
+                            assert_sometimes!(true, "Successfully committed transaction", &json!({"result": format!("topic {}, id {}, msg {}", &topic, &key, &msg)}));
+                            break;
+                        }
+                        // Err(KafkaError::Transaction(TransactionError::ProducerFenced) | KafkaError::Transaction(TransactionError::TransactionAborted)) => {
+                        //     eprintln!("Unrecoverable error during commit: {:?}", e);
+                            // // Best effort abort, then exit or propagate error
+                            // let _ = self.producer.unwrap().abort_transaction(Timeout::Never);
+                            // assert_unreachable!("Unrecoverable error during Kafka commit", &json!({"error": format!("{:?}", e)}));
+                            // return Err(anyhow!("Unrecoverable transaction error: {:?}", e));
+                        // }
+                        Err(e) => {
+                            eprintln!("kafka: failed to commit transaction with topic {}, id {}, msg {}, error {}, retrying...", &topic, &key, &msg, e);
+                            if is_fatal_error(&e) {
+                                eprintln!("Unrecoverable error during commit: {:?}", e);
+                                // Best effort abort, then exit or propagate error
+                                let _ = self.producer.as_ref().unwrap().abort_transaction(Timeout::Never);
+                                assert_unreachable!("Unrecoverable error during Kafka commit", &json!({"error": format!("{:?}", e)}));
+                                return Err(anyhow!("Unrecoverable transaction error: {:?}", e));
+                            }
+                            assert_sometimes!(false, "Successfully committed transaction", &json!({"error": format!("{}", e)}));
+                            sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                        }
+                    }
+                }
+                Ok(())
+            }
+            KafkaProducers::AtLeastOnce | KafkaProducers::AtLeastOnceBatch => {
+                println!("kafka: wow");
+                loop {
+                    let send_status = self.producer.as_ref().unwrap().send(
+                        FutureRecord::to(topic)
+                            .payload(msg)
+                            .key(key),
+                        Duration::from_secs(60),
+                    ).await;
+                    match send_status {
+                        Ok(_) => {
+                            println!("kafka: successfully produced message with topic {}, id {}, msg {}", &topic, &key, &msg);
+                            assert_sometimes!(true, "Successfully produced message", &json!({"result": format!("topic {}, id {}, msg {}", &topic, &key, &msg)}));
+                            break;
+                        },
+                        Err((e, _message)) => {
+                            eprintln!("kafka: failed to produce message with topic {}, id {}, msg {}, error {}, retrying...", &topic, &key, &msg, e);
+                            assert_sometimes!(false, "Successfully produced message", &json!({"error": format!("{}", e)}));
+                            sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                        }
+                    }
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -177,7 +351,7 @@ impl Postgres {
         Ok(Postgres { client })
     }
 
-    async fn get_unproduced_data(&self, limit: i64) -> Result<Vec<BankAccount>, Error> {
+    async fn safe_get_unproduced_data(&self, limit: i64) -> Vec<BankAccount> {
         let query = "
             SELECT * 
             FROM producer 
@@ -185,24 +359,33 @@ impl Postgres {
             ORDER BY id ASC 
             LIMIT $1;
         ";
-        let rows = self.client
-        .query(query, &[&(limit)])
-        .await
-        .map_err(|e| {
-            error!("Failed to perform query: {}", e);
-            assert_sometimes!(false, "Producer recieved data from state_tracker", &json!({"error": format!("Failed to perform query: {}", e)}));
-            e
-        })?;
+        let rows = loop {
+            let result = self.client
+                .query(query, &[&(limit)])
+                .await;
+            match result {
+                Ok(rows) => {
+                    let rows_ids = rows.iter().map(|row| row.get("id")).collect::<Vec<_>>();
+                    println!("postgres: unproduced data query completed successfully: {:?}", rows_ids);
+                    assert_sometimes!(true, "Producer recieved data", &json!({"result": rows_ids}));
+                    break rows;
+                },
+                Err(e) => {
+                    eprintln!("postgres: failed to perform query, err: {}, retrying...", e);
+                    assert_sometimes!(false, "Producer recieved data", &json!({"error": format!("Failed to perform query: {}", e)}));
+                    sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                }
+            }
+        }
         let accounts: Vec<BankAccount> = rows
             .iter()
             .map(BankAccount::from_row)
             .collect(); // Collect directly since there are no errors in `from_row`
-        assert_sometimes!(true, "Producer recieved data from state_tracker", &json!({"result": accounts.len()}));
         Ok(accounts) // Wrap in `Ok` because this function returns a Result
             // TRY USE THIS: use serde_postgres::de::from_row;
     }
 
-    async fn write_produced(&self, b_a: &BankAccount, mode: &KafkaProducers) -> Result<(), Error> {
+    async fn safe_write_produced(&self, b_a: &BankAccount, route: &'static str) {
         let update = "
             UPDATE producer
             SET 
@@ -210,21 +393,25 @@ impl Postgres {
                 producer_type = $2
             WHERE id = $3;
         ";
-        let current_timestamp = chrono::Utc::now().naive_utc();
-        // this performs update and returns number of rows updated. Not super useful for us, so we don't capture this number
-        self.client
-            .execute(update, &[&current_timestamp, &mode.get_route(), &(b_a.id)]) // Assuming id is SERIAL (i32 in DB)
-            .await
-            .and_then(|d| {
-                assert_sometimes!(true, "Producer recorded data produced to Kafka on state_tracker", &json!({"result": b_a}));
-                Ok(d)
-            })
-            .map_err(|e| {
-                error!("Failed to update timestamp: {}", e);
-                assert_sometimes!(false, "Producer recorded data produced to Kafka on state_tracker", &json!({"error": format!("Failed to update timestamp for {:?} {}", b_a, e)}));
-                e
-            })?;
-        Ok(())
+        loop {
+            let current_timestamp = chrono::Utc::now().naive_utc();
+            // this performs update and returns number of rows updated. Not super useful for us, so we don't capture this number
+            let pg_status = self.client
+                .execute(update, &[&current_timestamp, &route, &(b_a.id)]) // Assuming id is SERIAL (i32 in DB)
+                .await;
+            match pg_status {
+                Ok(d) => {
+                    println!("postgres: produced data written successfully: id: {}, number of rows update: {}", b_a.id, d);
+                    assert_sometimes!(true, "Producer recorded data produced to Kafka on state_tracker", &json!({"result": format!("id: {} number of rows updated: {}", b_a.id, d)}));
+                    break;
+                },
+                Err(e) => {
+                    eprintln!("postgres: failed to write produce data timestamp: id: {}, err: {}", b_a.id, e);
+                    assert_sometimes!(false, "Producer recorded data produced to Kafka on state_tracker", &json!({"error": format!("Failed to update timestamp for id: {}, err: {}", b_a.id, e)}));
+                    sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                }
+            }
+        }
     }
 }
 
@@ -240,14 +427,14 @@ fn create_router(state: Arc<AppState>) -> Router {
     r
 }
 
-fn create_nested_router(state: Arc<AppState>, mode: KafkaProducers) -> Router{
+fn create_nested_router(state: Arc<AppState>, kafka_mode: KafkaProducers) -> Router{
      Router::new()
         .route("/:topic/:num_records", post(handle))
         // .route("/single/:topic", post(handle_single))
         // .route("/batch_sequential/:topic/:", post(handle_sequential_batch))
         .with_state(state) // Attach state to the router
         .layer(middleware::from_fn(move |req, next| {
-            add_context_middleware(req, next, mode.clone())
+            add_context_middleware(req, next, kafka_mode.clone())
         }))
        
 }
@@ -255,24 +442,34 @@ fn create_nested_router(state: Arc<AppState>, mode: KafkaProducers) -> Router{
 async fn add_context_middleware(
     mut req: axum::http::Request<Body>,
     next: Next,
-    context: KafkaProducers, // Pass context explicitly
+    kafka_mode: KafkaProducers, // Pass context explicitly
 ) -> Response {
     info!("middleware: adding context to request");
-    req.extensions_mut().insert(context);
-    next.run(req).await
+    req.extensions_mut().insert(kafka_mode);
+    match tokio::spawn(next.run(req)).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            eprintln!("middleware: task failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }
 
 async fn handle(
     Path((topic, num_records)): Path<(String, i64)>,
     State(state): State<Arc<AppState>>,
-    Extension(mode): Extension<KafkaProducers>
+    Extension(kafka_mode): Extension<KafkaProducers>
 ) {
     let brokers = &state.brokers;
     
     let mut producers = state.producers.lock().await;
     let producer = producers
-        .entry(mode.get_route().to_string())
-        .or_insert_with(|| mode.create_config(brokers));
+        .entry(kafka_mode.get_route().to_string())
+        .or_insert_with(|| {
+            let mut kp = KafkaProducer {kind: kafka_mode.clone(), producer: None};
+            kp.create_config(brokers);
+            kp
+        });
 
     let mut pg_client_guard = state.pg_client.lock().await;
     if pg_client_guard.is_none() {
@@ -290,9 +487,8 @@ async fn handle(
 
     if let Some(pg_client) = &*pg_client_guard {
         let bank_accounts = pg_client
-            .get_unproduced_data(num_records)
-            .await
-            .unwrap();
+            .safe_get_unproduced_data(num_records)
+            .await;
 
         for bank_account in bank_accounts.iter() {
             let bank_account_str = serde_json::to_string(&bank_account)
@@ -304,46 +500,15 @@ async fn handle(
                 }).unwrap();
             let msg: String = format!("{}", &bank_account_str);
             let key: String = format!("{}", &bank_account.id);
-            info!("About to produce");
-            let producer_delivery_status = producer
-                .send(
-                    FutureRecord::to(&topic)
-                        .payload(&msg)
-                        .key(&key),
-                    Duration::from_secs(60),
-                )
-                .await;
-            info!("Data produced");
-            // We won't record the data in postgres if it fails to send
-            // This will mean we will try to send the same data when we query postgres for unsent data
-            match producer_delivery_status {
-                Ok(delivery) => {
-                    assert_sometimes!(true, "Produced data to Kafka", &json!({"result": delivery}));
-                    info!("About to postgres");
-                    loop {
-                        match pg_client.write_produced(bank_account, &mode).await {
-                            Ok(_) => { break; },
-                            Err(e) => {
-                                error!("Failed to send data to postgres {:?}", e);
-                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                info!("Going to retry  {:?}", e);
-                            }
-                        }
-                    }
-                    pg_client
-                        .write_produced(bank_account, &mode)
-                        .await
-                        .unwrap();
-                    info!("Data sent to postgres");
-                }
-                Err(e) => {
-                    error!("Failed to deliver message {:?}", e);
-                    assert_sometimes!(false, "Produced data to Kafka", &json!({"error": format!("Failed to deliver message: {:?}", e)}));
-                }
+            println!("kafka: data being produced");
+
+            let d = producer.safe_send(&topic, &msg, &key).await;
+            if let Ok(_) = d {
+                pg_client.safe_write_produced(bank_account, kafka_mode.get_route()).await;
             }
         }
 
-        info!("num_bank_accounts_produced {:?}", bank_accounts.len());
+        // info!("num_bank_accounts_produced {:?}", bank_accounts.len());
         // Use pg_client.client for database operations
     }
     // The producer will automatically batch before sending messages
@@ -359,12 +524,14 @@ async fn main() {
     info!("{:?}", SystemTime::now().duration_since(UNIX_EPOCH));
     env_logger::init();
 
-    let producers: Arc<Mutex<HashMap<String, FutureProducer>>> = Arc::new(Mutex::new(HashMap::new()));
+    let producers: Arc<Mutex<HashMap<String, KafkaProducer>>> = Arc::new(Mutex::new(HashMap::new()));
     let brokers = vec!["kafka-3:9092", "kafka-2:9092", "kafka-1:9092"];
     let pg_client = Arc::new(Mutex::new(None));
 
     let state = AppState { producers, brokers, pg_client };
     let app = create_router(state.into());
+
+    // let app = 
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("Server running at http:{:?}", listener);
