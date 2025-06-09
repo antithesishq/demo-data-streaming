@@ -45,8 +45,9 @@ services:
         ipv4_address: 11.0.0.13
   data_generator:
     container_name: data_generator
-    hostname: data_generator
+    hostname: data-generator
     image: data_generator:latest
+    entrypoint: ["flask", "--app", "base", "run", "--debug", "--host=0.0.0.0"]
     networks:
       kafka-net:
         ipv4_address: 11.0.0.14
@@ -55,8 +56,10 @@ services:
     hostname: data_generator_client
     image: pgsql_client:latest
     environment:
-      BATCH_SAVE_SIZE: 100 # saving # of records per batch
-      DATA_GENERATOR_ENDPOINT: http://data_generator:5000 # !No trailing slash
+      DATA_TYPE: _banktest_transaction
+      BATCH_SAVE_SIZE: 20 # saving # of records per batch
+      BANK_TEST_NO_ACCOUNTS: 20
+      DATA_GENERATOR_ENDPOINT: http://data-generator:5000 # !No trailing slash
       POSTGRES_HOST: state-tracker
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u

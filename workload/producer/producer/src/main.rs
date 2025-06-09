@@ -317,39 +317,75 @@ impl KafkaProducer {
     }
 }
 
-
-
 #[derive(Debug, Serialize, Deserialize)]
-struct BankAccount {
-    id: i32,
-    aba: String,
-    iban: String,
-    swift11: String,
-    bank_country: String,
-    produced_timestamp: Option<SystemTime>,
-    producer_type: Option<String>,
-    consumed_timestamp: Option<SystemTime>,
-    consumer_type: Option<String>,
-    consumed_count: i32
-    // consumed: bool
-}
-
-impl BankAccount {
-    fn from_row(row: &Row) -> Self {
-        BankAccount {
-            id: row.get("id"),
-            aba: row.get("aba"),
-            iban: row.get("iban"),
-            swift11: row.get("swift11"),
-            bank_country: row.get("bank_country"),
-            produced_timestamp: row.try_get("produced_timestamp").ok(),
-            producer_type: row.try_get("producer_type").ok(),
-            consumed_timestamp: row.try_get("consumed_timestamp").ok(),
-            consumer_type: row.try_get("consumer_type").ok(),
-            consumed_count: row.get("consumed_count")
-        }
+enum BankData {
+    BankAccount {
+        id: i32,
+        aba: String,
+        iban: String,
+        swift11: String,
+        bank_country: String,
+        produced_timestamp: Option<SystemTime>,
+        producer_type: Option<String>,
+        consumed_timestamp: Option<SystemTime>,
+        consumer_type: Option<String>,
+        consumed_count: i32
+    },
+    BankTransfer {
+        from: String,
+        to: String,
+        amount: i32 
     }
 }
+
+
+
+impl BankData {
+    fn from_row(row: &Row) -> Self {
+        let data_type: String = row.get("type");
+        match data_type.as_str() {
+            "account" => BankData::BankAccount {
+                id: row.get("id"),
+                aba: row.get("aba"),
+                iban: row.get("iban"),
+                swift11: row.get("swift11"),
+                bank_country: row.get("bank_country"),
+                produced_timestamp: row.try_get("produced_timestamp").ok(),
+                producer_type: row.try_get("producer_type").ok(),
+                consumed_timestamp: row.try_get("consumed_timestamp").ok(),
+                consumer_type: row.try_get("consumer_type").ok(),
+                consumed_count: row.get("consumed_count"),
+            },
+            "transfer" => BankData::BankTransfer {
+                from: row.get("from"),
+                to: row.get("to"),
+                amount: row.get("amount"),
+            },
+            other => {
+                panic!("producer: unknown BankData type: {}", other)
+            }
+        } 
+    }
+
+    fn query_unproduced_data(&self) -> String {
+        let base_query = "
+            SELECT * 
+            FROM producer 
+            WHERE produced_timestamp IS NULL and type = {}
+            ORDER BY id ASC 
+            LIMIT $1;
+        ";
+        match &self {
+            BankData::BankAccount{ .. } => format!(base_query, "bank_account"),
+            BankData::BankTransfer { from, to, amount } => format!(base_query, "bank_transfer")
+        }        
+    }
+
+    fn get_ids() {
+
+    }
+}
+
 
 
 #[derive(Debug)]
