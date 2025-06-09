@@ -215,7 +215,7 @@ async fn main() {
     antithesis_init();
     env_logger::init();
 
-    if let Ok(pg_client) = Postgres::new("host=state_tracker user=u password=p dbname=d ").await {
+    if let Ok(pg_client) = Postgres::new("host=state-tracker user=u password=p dbname=d ").await {
         info!("Postgres client initialized successfully.");
         let matches = Command::new("Validator CLI")
             .version("1.0")

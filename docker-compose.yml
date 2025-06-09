@@ -57,16 +57,16 @@ services:
     environment:
       BATCH_SAVE_SIZE: 100 # saving # of records per batch
       DATA_GENERATOR_ENDPOINT: http://data_generator:5000 # !No trailing slash
-      POSTGRES_HOST: state_tracker
+      POSTGRES_HOST: state-tracker
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
       POSTGRES_DB: d
     networks:
       kafka-net:
         ipv4_address: 11.0.0.15
-  state_tracker:
-    container_name: state_tracker
-    hostname: state_tracker
+  state-tracker:
+    container_name: state-tracker
+    hostname: state-tracker
     image: docker.io/library/postgres:12.22
     environment:
       POSTGRES_PASSWORD: p

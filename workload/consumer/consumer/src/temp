@@ -1,0 +1,143 @@
+        consumer.subscribe(&[&topic])
+            .map_err(|e| {
+                eprintln!("kafka: Can't subscribe to specified topics: {}", e);
+                assert_sometimes!(false, "Consumer subscribed to topic", &json!({"error": format!("Can't subscribe to specified topics: {}", e)}));
+                e
+            })
+            .unwrap();
+        
+        println!("kafka: Subbed to topic");
+        assert_sometimes!(true, "Consumer subscribed to topic", &json!({"value": topic}));
+
+        let mut count = 0;
+        while count < num_records {
+            match consumer.recv().await {
+                Ok(message) => {
+                    assert_sometimes!(true, "Consumer consumed data", &json!({"value": format!("{:?}", message)}));
+                    if let Some(payload) = message.payload_view::<str>() {
+                        match payload {
+                            Ok(text) => {
+                                assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
+                                let b_a = serde_json::from_str::<BankAccount>(text.trim())
+                                    .map_err(|e| {
+                                        eprintln!("kafka: Can't serialize BankAccount from producer");
+                                        assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
+                                        e
+                                    })
+                                    .unwrap();
+                                println!("kafka: Received message: {:?}", b_a);
+                                loop {
+                                    match pg_client.write_consumed(&b_a, &mode).await {
+                                        Ok(_) => {
+                                            println!("postgres: update complete");
+                                            break; 
+                                        },
+                                        Err(e) => {
+                                            eprintln!("postgres: Failed to send data to postgres {:?}", e);
+                                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                            println!("postgres: Going to retry  {:?}", e);
+                                        }
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("kafka: Failed to decode message payload: {}", e);
+                                assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
+                            },
+                        }
+                    }
+                    count += 1;
+                }
+                Err(e) => {
+                    eprintln!("kafka: Error while consuming: {}", e);
+                    assert_sometimes!(false, "Consumer consumed data", &json!({"error": format!("Error while consuming: {}", e)}));
+
+                }
+            }
+        }
+
+
+
+
+                // let update = "
+        //     UPDATE producer
+        //     SET 
+        //         consumed_timestamp = $1,
+        //         consumer_type = $2,
+        //         consumed_count = consumed_count + 1
+        //     WHERE id = $3;
+        // ";
+        // loop {
+        //     let current_timestamp = chrono::Utc::now().naive_utc();
+        //     // this performs update and returns number of rows updated. Not super useful for us, so we don't capture this number
+        //     let result = self.client
+        //         .execute(update, &[&current_timestamp, &mode.get_route(), &(b_a.id)]) // Assuming id is SERIAL (i32 in DB)
+        //         .await;
+        //     match result {
+        //         Ok(d) => {
+        //             if *d > 0 {
+        //                 println!("postgres: Bank Account ID: {:?}, Updated timestamp: {}, Updated route: {}, result: d: {}", &b_a.id, &current_timestamp, &mode.get_route(), &d);
+        //                 assert_sometimes!(true, "Recorded data consumed from Kafka to state-tracker", &json!({"result": b_a}));
+        //                 break;
+        //             } else {
+        //                 eprintln!("postgres: I guess we updated nothing...: {}", &d);
+        //                 assert_unreachable!("Recorded 0 data consumed from Kafka to state-tracker with no errors", &json!({"result": "none"}));
+        //                 sleep(Duration::from_secs(1)); // Avoid tight retry loop
+        //             }            
+        //         },
+        //         Err(e) => {
+        //             eprintln!("postgres: Failed to update timestamp: {}", e);
+        //             assert_sometimes!(false, "Recorded data consumed from Kafka to state-tracker", &json!({"error": format!("Failed to update timestamp {}", e)}));
+        //             sleep(Duration::from_secs(1)); // Avoid tight retry loop
+        //         }
+        //     }
+        // }
+
+
+    async fn safe_write_consumed(&self, b_as: Vec<(BankAccount, NaiveDateTime)>, kafka_mode: &KafkaConsumers) {
+        // Instead of update, you should write the entire BankAccount to a new consumers table
+        // then the validator should check if both bank accounts referenced by the same ids in the consumer and producer are the same
+        // OR
+        // Validator should look at the latest produced message and see that all prior messages were produced
+        //
+
+        let ids: Vec<i32> = b_as.iter().map(|(acc, _)| acc.id).collect();
+        let timestamps: Vec<NaiveDateTime> = b_as.iter().map(|(_, ts)| *ts).collect();
+        let consumer_type = kafka_mode.get_route();
+
+        // Build the query
+        let query = "
+            UPDATE producer
+            SET
+                consumed_timestamp = data.consumed_timestamp,
+                consumer_type = $1,
+                consumed_count = consumed_count + 1
+            FROM (
+                SELECT UNNEST($2::INT[]) AS id,
+                       UNNEST($3::TIMESTAMP[]) AS consumed_timestamp
+            ) AS data
+            WHERE producer.id = data.id;
+        ";
+
+        loop {
+            let result = self.client.execute(query, &[&consumer_type, &ids, &timestamps]).await;
+            match result {
+                Ok(d) => {
+                    if d > 0 {
+                        println!("postgres: Updated fields: {:?}, rows updated: {}", &ids, &d);
+                        assert_sometimes!(true, "Recorded data consumed from Kafka to state-tracker", &json!({"result": format!("{:?}", &ids)}));
+                        break;
+                    } else {
+                        eprintln!("postgres: I guess we updated nothing...: {}", &d);
+                        assert_unreachable!("Recorded 0 data consumed from Kafka to state-tracker with no errors", &json!({"result": "none"}));
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                    }            
+                },
+                Err(e) => {
+                    eprintln!("postgres: Failed to update fields: {:?} error: {}", &ids, e);
+                    assert_sometimes!(false, "Recorded data consumed from Kafka to state-tracker", &json!({"error": format!("Failed to update timestamp {}", e)}));
+                    sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                }
+            }
+        }
+    }

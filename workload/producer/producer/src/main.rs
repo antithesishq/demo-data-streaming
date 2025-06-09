@@ -18,11 +18,13 @@ use rand::Rng;
 use anyhow::{anyhow, Result};
 
 use reqwest;
+//use reqwest::StatusCode;
 
 use tokio::runtime::Handle;
 use tokio::signal::unix::SignalKind;
 use tokio::sync::Mutex;
-use tokio::time::sleep;
+
+use std::thread::sleep;
 
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -35,7 +37,8 @@ use axum::{
     body::Body,
     extract::{State, Json, Extension, Path},
     middleware::{self, Next},
-    response::{Response, Json as ResponseJson},
+    response::{Response, Json as ResponseJson, IntoResponse},
+    http::StatusCode,
     routing::post,
     Router,
 };
@@ -92,20 +95,30 @@ struct KafkaProducer {
 
 fn is_fatal_error(err: &KafkaError) -> bool {
     match err {
-        KafkaError::Transaction(e) => e.is_fatal(),
-        KafkaError::MessageProduction(code)
-        | KafkaError::MessageConsumption(code)
-        | KafkaError::MessageConsumptionFatal(code)
-        | KafkaError::Flush(code)
+        KafkaError::Transaction(e) => {
+            if e.is_fatal() {
+                eprintln!("kafka: fatal error: {}", e);
+                return true 
+            } 
+            eprintln!("kafka: not fatal error: {}", e);
+            false
+        },
+        // KafkaError::MessageProduction(code)
+        // | KafkaError::MessageConsumption(code)
+        // | KafkaError::MessageConsumptionFatal(code)
+        // | KafkaError::Flush(code)
         // | KafkaError::Commit(code)
-        | KafkaError::MetadataFetch(code)
-        | KafkaError::GroupListFetch(code)
-        | KafkaError::OffsetFetch(code)
-        | KafkaError::StoreOffset(code) => false, // Setting all these not fatal unless proven otherwise
+        // | KafkaError::MetadataFetch(code)
+        // | KafkaError::GroupListFetch(code)
+        // | KafkaError::OffsetFetch(code)
+        // | KafkaError::StoreOffset(code) => false, // Setting all these not fatal unless proven otherwise
         // | KafkaError::ConsumerCommit(code) => code.is_fatal()
         // KafkaError::Subscription(code_str) =>
         // | KafkaError::Seek(code) => probable not that bad
-        _ => false,
+        e => {
+            println!("kafka: non fatal error {}", e);
+            false
+        }
     }
 }
 
@@ -365,7 +378,7 @@ impl Postgres {
                 .await;
             match result {
                 Ok(rows) => {
-                    let rows_ids = rows.iter().map(|row| row.get("id")).collect::<Vec<_>>();
+                    let rows_ids: Vec<i32> = rows.iter().map(|row| row.get("id")).collect::<Vec<_>>();
                     println!("postgres: unproduced data query completed successfully: {:?}", rows_ids);
                     assert_sometimes!(true, "Producer recieved data", &json!({"result": rows_ids}));
                     break rows;
@@ -376,12 +389,12 @@ impl Postgres {
                     sleep(Duration::from_secs(1)); // Avoid tight retry loop
                 }
             }
-        }
+        };
         let accounts: Vec<BankAccount> = rows
             .iter()
             .map(BankAccount::from_row)
             .collect(); // Collect directly since there are no errors in `from_row`
-        Ok(accounts) // Wrap in `Ok` because this function returns a Result
+        accounts
             // TRY USE THIS: use serde_postgres::de::from_row;
     }
 
@@ -402,12 +415,12 @@ impl Postgres {
             match pg_status {
                 Ok(d) => {
                     println!("postgres: produced data written successfully: id: {}, number of rows update: {}", b_a.id, d);
-                    assert_sometimes!(true, "Producer recorded data produced to Kafka on state_tracker", &json!({"result": format!("id: {} number of rows updated: {}", b_a.id, d)}));
+                    assert_sometimes!(true, "Producer recorded data produced to Kafka on state-tracker", &json!({"result": format!("id: {} number of rows updated: {}", b_a.id, d)}));
                     break;
                 },
                 Err(e) => {
                     eprintln!("postgres: failed to write produce data timestamp: id: {}, err: {}", b_a.id, e);
-                    assert_sometimes!(false, "Producer recorded data produced to Kafka on state_tracker", &json!({"error": format!("Failed to update timestamp for id: {}, err: {}", b_a.id, e)}));
+                    assert_sometimes!(false, "Producer recorded data produced to Kafka on state-tracker", &json!({"error": format!("Failed to update timestamp for id: {}, err: {}", b_a.id, e)}));
                     sleep(Duration::from_secs(1)); // Avoid tight retry loop
                 }
             }
@@ -474,7 +487,7 @@ async fn handle(
     let mut pg_client_guard = state.pg_client.lock().await;
     if pg_client_guard.is_none() {
         *pg_client_guard = Some(
-            Postgres::new("host=state_tracker user=u password=p dbname=d ")
+            Postgres::new("host=state-tracker user=u password=p dbname=d ")
             .await
             .map_err(|e| {
                 error!("Failed to initialize Postgres {:?}", e);
@@ -482,7 +495,7 @@ async fn handle(
             })
             .unwrap()
         );
-        assert_reachable!("Producer created connection to state_tracker", &json!({}));
+        assert_reachable!("Producer created connection to state-tracker", &json!({}));
     }
 
     if let Some(pg_client) = &*pg_client_guard {
