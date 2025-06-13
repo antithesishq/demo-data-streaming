@@ -1,0 +1,22 @@
+services:
+  ddb:
+    container_name: ddb
+    hostname: ddb
+    image: docker.io/amazon/dynamodb-local
+    ports:
+      - "8000:8000"
+    networks:
+      - testnet
+  ddd:
+    container_name: ddd
+    hostname: ddd
+    image: dynodebug:latest
+    networks:
+      - testnet
+networks:
+  testnet:
+    name: testnet
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.20.0/24
