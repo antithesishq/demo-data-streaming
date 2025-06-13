@@ -45,7 +45,7 @@ use serde_postgres::de::from_row;
 
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-use tokio_postgres::{Client, NoTls, Error, Row};
+use tokio_postgres::{NoTls, Row};
 use tokio_postgres::types::ToSql;
 
 use std::thread::sleep;
@@ -57,9 +57,202 @@ use anyhow::{Result, Context};
 
 use chrono;
 
+use aws_config::meta::region::RegionProviderChain;
+use aws_sdk_dynamodb::{
+    types::{
+        AttributeDefinition, AttributeValue, BillingMode, KeySchemaElement, KeyType,
+        ScalarAttributeType, Update, TransactWriteItem
+    }, 
+};
+
+
+fn is_retryable_error(error_msg: &str) -> bool {
+    // Common retryable DynamoDB errors
+    error_msg.contains("ProvisionedThroughputExceededException") ||
+    error_msg.contains("ThrottlingException") ||
+    error_msg.contains("InternalServerError") ||
+    error_msg.contains("ServiceUnavailable") ||
+    error_msg.contains("RequestLimitExceeded") ||
+    error_msg.contains("TransactionConflictException")
+}
+
+#[derive(Debug)]
+struct DynamoDb {
+    client: aws_sdk_dynamodb::Client
+}
+
+impl DynamoDb {
+    async fn new() -> Result<Self> {
+        let config = aws_config::from_env()
+            .region(RegionProviderChain::default_provider().or_else("us-east-1"))
+            .endpoint_url("http://ddb:8000") 
+            .load()
+            .await;
+        let client = aws_sdk_dynamodb::Client::new(&config);
+        Ok(DynamoDb { client })
+    }
+
+    async fn safe_create_table(&self){
+        let table_name = "accounts";
+        
+        let ad = AttributeDefinition::builder()
+            .attribute_name("iban")
+            .attribute_type(ScalarAttributeType::S)
+            .build()
+            .unwrap();
+
+        let ks = KeySchemaElement::builder()
+            .attribute_name("iban")  
+            .key_type(KeyType::Hash) 
+            .build()
+            .unwrap(); 
+
+        loop {
+            match self.client
+            .create_table()
+            .table_name(table_name)
+            .key_schema(ks.clone())
+            .attribute_definitions(ad.clone())
+            .billing_mode(BillingMode::PayPerRequest)
+            .send()
+            .await
+            {
+                Ok(_) => {
+                    println!("dynamodb: table '{}' created successfully", table_name);
+                    break;
+                },
+                Err(e) => {
+                    if e.to_string().contains("ResourceInUseException") {
+                        println!("dynamodb: error: table '{}' already exists", table_name);
+                        break;
+                    } else {
+                        println!("dynamodb: error: failed to create table {:?}, retrying ...", e);
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop 
+                    }
+                }
+            }
+        }    
+    }
+
+    async fn safe_transaction(&self, b_d: BankData) {
+        let b_t = BankTransaction::from_bank_data(b_d);
+        match b_t {
+            Ok(BankTransaction::BankTransfer { from, to, amount, .. }) => {
+                self.safe_transfer(from, to, amount).await;
+
+            },
+            Ok(BankTransaction::BankFund{ iban, amount, .. }) => {
+                self.safe_fund(iban, amount).await;
+            },
+            Err(e) => eprintln!("dynamodb: failed to deserialize bank_transaction data {:?}", e)
+            
+        }
+    }
+
+    async fn safe_fund(&self, iban: String, amount: f64) {
+        let fund = match aws_sdk_dynamodb::types::Put::builder()
+            .table_name("accounts")
+            .item("iban", AttributeValue::S(iban.clone()))
+            .item("balance", AttributeValue::N(amount.clone().to_string()))
+            .condition_expression("attribute_not_exists(iban)")
+            .build() {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("dynamodb: failed to build fund transaction, error: {:?}", e);
+                    return;
+                }
+            };            
+        let transact_items = vec![
+            TransactWriteItem::builder().put(fund).build(),
+        ]; 
+        
+        loop { 
+            match self.client
+                .transact_write_items()
+                .set_transact_items(Some(transact_items.clone()))
+                .send()
+                .await
+            {
+                Ok(_) => {
+                    println!("dynamodb: account funding successful: {} funded with {}", iban, amount);
+                    break;
+                }
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if is_retryable_error(&error_msg) {
+                        eprintln!("dynamodb: fund transaction failed with error: {}, retrying ...", error_msg); 
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop 
+                    } else {
+                        eprintln!("dynamodb: fatal: non-retryable error encountered: {}", error_msg);
+                        return
+                    }
+                }
+            }
+        }
+
+    }
+
+    async fn safe_transfer(&self, from: String, to: String, amount: f64) {
+        let from_transfer = match Update::builder()
+                .table_name("accounts")
+                .key("iban", AttributeValue::S(from.clone()))
+                .update_expression("ADD balance :amount")
+                .expression_attribute_values(":amount", AttributeValue::N((-amount).to_string()))
+                .build() {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("dynamodb: failed to build 'from' account: {} update, error: {:?}", from, e);
+                        return;
+                    }
+                };
+                
+        let to_transfer = match Update::builder()
+                .table_name("accounts")
+                .key("iban", AttributeValue::S(to.clone()))
+                .update_expression("ADD balance :amount")
+                .expression_attribute_values(":amount", AttributeValue::N(amount.to_string()))
+                .build() {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("dynamodb: failed to build 'to' account: {} update, error: {}", to, e);
+                        return;
+                    }
+                }; 
+
+        let transact_items = vec![
+            TransactWriteItem::builder().update(from_transfer).build(), 
+            TransactWriteItem::builder().update(to_transfer).build(),
+        ]; 
+        
+        loop { 
+            match self.client
+                .transact_write_items()
+                .set_transact_items(Some(transact_items.clone()))
+                .send()
+                .await
+            {
+                Ok(_) => {
+                    println!("dynamodb: transfer successful : {} from {} to {}", amount, &from, &to);
+                    break
+                }
+                Err(e) => {
+                    let error_msg = e.to_string(); 
+                    if is_retryable_error(&error_msg) {
+                        println!("dynamodb: transaction failed with error: {}, retrying ...", error_msg);
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                    } else {
+                        eprintln!("dynamodb: fatal error encountered: {}", error_msg);
+                        return
+                    }
+                }
+            }
+        }
+    } 
+}
+
 #[derive(Debug)]
 struct Postgres {
-    client: Client
+    client: tokio_postgres::Client
 }
 
 impl Postgres {
@@ -69,8 +262,9 @@ impl Postgres {
         Ok(Postgres { client })
     }
 
-    async fn safe_write_consumed(&self, b_a_data: (BankAccount, NaiveDateTime), kafka_mode: &KafkaConsumers) {
-        let (b_a, current_timestamp) = b_a_data;
+    async fn safe_write_consumed(&self, b_d_data: &(BankData, NaiveDateTime), kafka_mode: &KafkaConsumers) {
+        let b_d = &b_d_data.0;
+        let current_timestamp = &b_d_data.1;
         let update = "
             UPDATE producer
             SET 
@@ -82,13 +276,13 @@ impl Postgres {
         loop {
             // this performs update and returns number of rows updated. Not super useful for us, so we don't capture this number
             let result = self.client
-                .execute(update, &[&current_timestamp, &kafka_mode.get_route(), &(b_a.id)]) // Assuming id is SERIAL (i32 in DB)
+                .execute(update, &[&current_timestamp, &kafka_mode.get_route(), &(b_d.id)]) // Assuming id is SERIAL (i32 in DB)
                 .await;
             match result {
                 Ok(d) => {
                     if d > 0 {
-                        println!("postgres: Bank Account ID: {:?}, Updated timestamp: {}, Updated route: {}, result: d: {}", &b_a.id, &current_timestamp, &kafka_mode.get_route(), &d);
-                        assert_sometimes!(true, "Recorded data consumed from Kafka to state-tracker", &json!({"result": b_a}));
+                        println!("postgres: Bank Account ID: {:?}, Updated timestamp: {}, Updated route: {}, result: d: {}", &b_d.id, &current_timestamp, &kafka_mode.get_route(), &d);
+                        assert_sometimes!(true, "Recorded data consumed from Kafka to state-tracker", &json!({"result": b_d}));
                         break;
                     } else {
                         eprintln!("postgres: I guess we updated nothing...: {}", &d);
@@ -107,36 +301,64 @@ impl Postgres {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct BankAccount {
+#[serde(untagged)]
+enum BankTransaction {
+    BankTransfer { to: String, from: String, amount: f64 },
+    BankFund { iban: String, aba: String, swift11: String, bank_country: String, amount: f64 }
+}
+
+impl BankTransaction {
+    fn from_bank_data(b_d: BankData) -> Result<Self, serde_json::Error> {
+        // let b_d_topic: &str = &b_d.topic;
+        let b_transaction: BankTransaction = serde_json::from_str(&b_d.data)
+            .inspect_err(|e| {
+                println!("kafka: transaction data failed to deserialize: {:?}", e);
+                assert_sometimes!(false, "Consumer's consumed sub-message failed to deserialize to BankTransaction", &json!({ "error": format!("{:?}", e) }));
+            })?;
+        println!("kafka: bank transaction: {:?}", b_transaction);
+        Ok(b_transaction)
+    }
+}
+
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct BankData {
     id: i32,
-    aba: String,
-    iban: String,
-    swift11: String,
-    bank_country: String,
+    data: String, 
     produced_timestamp: Option<SystemTime>,
     producer_type: Option<String>,
     consumed_timestamp: Option<SystemTime>,
     consumer_type: Option<String>,
-    consumed_count: i32
+    consumed_count: i32, 
+    topic: String
     // consumed: bool
 }
 
-impl BankAccount {
+impl BankData {
     fn from_row(row: &Row) -> Self {
-        BankAccount {
+        BankData {
             id: row.get("id"),
-            aba: row.get("aba"),
-            iban: row.get("iban"),
-            swift11: row.get("swift11"),
-            bank_country: row.get("bank_country"),
+            data: row.get("data"), 
             produced_timestamp: row.try_get("produced_timestamp").ok(),
             producer_type: row.try_get("producer_type").ok(),
             consumed_timestamp: row.try_get("consumed_timestamp").ok(),
             consumer_type: row.try_get("consumer_type").ok(),
-            consumed_count: row.get("consumed_count")
+            consumed_count: row.get("consumed_count"),
+            topic: row.get("topic"),
         }
-    }
+    } 
 }
+
+
+
+
+
+impl BankTransaction {
+    
+}
+
+
 
 // A context can be used to change the behavior of producers and consumers by adding callbacks
 // that will be executed by librdkafka.
@@ -240,7 +462,7 @@ impl KafkaConsumer {
         }
     }
 
-    async fn safe_get_consumed(&mut self) -> Result<(BankAccount, NaiveDateTime)> {
+    async fn safe_get_consumed(&mut self) -> Result<(BankData, NaiveDateTime)> {
         let message = self.consumer.as_ref().unwrap().recv().await
             .map_err(|e| {
                 assert_sometimes!(false, "Consumer failed to receive message", &json!({ "error": format!("{:?}", e) }));
@@ -284,21 +506,21 @@ impl KafkaConsumer {
 
         let current_timestamp = chrono::Utc::now().naive_utc(); 
 
-        let b_a: BankAccount = serde_json::from_str(payload_str.trim())
+        let b_d: BankData = serde_json::from_str(payload_str.trim())
             .map_err(|e| {
                 println!("kafka: consumed message failed to deserialize: {:?}", e);
-                assert_sometimes!(false, "Consumer's consumed message failed to deserialize to BankAccount", &json!({ "error": format!("{:?}", e) }));
+                assert_sometimes!(false, "Consumer's consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
                 anyhow::Error::from(e)
                 //e.into() // convert to anyhow::Error
             })?;
 
-        println!("kafka: consumed message deserializable to BankAccount: {:?}", b_a);
-        assert_sometimes!(false, "Consumer's consumed message deserialized to BankAccount", &json!({ "result": format!("{:?}", b_a) }));
+        println!("kafka: consumed message deserializable to BankData: {:?}", b_d);
+        assert_sometimes!(false, "Consumer's consumed message deserialized to BankData", &json!({ "result": format!("{:?}", b_d) }));
 
-        Ok((b_a, current_timestamp))
+        Ok((b_d, current_timestamp))
     }
 
-    // async fn safe_get_consumed(&mut self) -> Result<(BankAccount, NaiveDateTime), Error> {
+    // async fn safe_get_consumed(&mut self) -> Result<(BankData, NaiveDateTime), Error> {
     //     match self.consumer.as_ref().unwrap().recv().await {
     //         Ok(message) => {
     //             assert_sometimes!(true, "Consumer consumed data", &json!({"value": format!("{:?}", message)}));
@@ -308,10 +530,10 @@ impl KafkaConsumer {
     //                         let current_timestamp = chrono::Utc::now().naive_utc();
     //                         println!("kafka: Consumed message has correct string decoding");
     //                         assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
-    //                         let b_a = serde_json::from_str::<BankAccount>(text.trim())
+    //                         let b_a = serde_json::from_str::<BankData>(text.trim())
     //                             .inspect_err(|e| {
-    //                                 eprintln!("kafka: Can't deserialize BankAccount from producer");
-    //                                 assert_unreachable!("Consumer failed to deserialize BankAccount from JSON", &json!({"error": format!("{:?}", e)}));
+    //                                 eprintln!("kafka: Can't deserialize BankData from producer");
+    //                                 assert_unreachable!("Consumer failed to deserialize BankData from JSON", &json!({"error": format!("{:?}", e)}));
     //                             })?
     //                         println!("kafka: Received deserializable message: {:?}", b_a);
     //                         Ok((b_a, current_timestamp))
@@ -392,8 +614,7 @@ async fn handle(
             kc
         });
      
-    let mut pg_client_guard = state.pg_client.lock().await;
-    
+    let mut pg_client_guard = state.pg_client.lock().await; 
     if pg_client_guard.is_none() {
         *pg_client_guard = Some(
             Postgres::new("host=state-tracker user=u password=p dbname=d ")
@@ -407,22 +628,37 @@ async fn handle(
         assert_reachable!("Consumer created connection to state-tracker", &json!({}));
     }
 
+    let mut ddb_client_guard = state.ddb_client.lock().await;
+    if ddb_client_guard.is_none() {
+        let ddb = DynamoDb::new().await.unwrap();
+        ddb.safe_create_table().await;
+        *ddb_client_guard = Some( ddb );
+        assert_reachable!("Consumer created connection to dynamodb and created tables", &json!({}));
+    }
+
+
     if let Some(pg_client) = &*pg_client_guard {
-        consumer.safe_subscribe(&topic);
-        let mut count = 0;
-        while count < num_records {
-            let b_a_data = consumer.safe_get_consumed().await;
-            match b_a_data {
-                Ok(b_a_data) => {
-                    pg_client.safe_write_consumed(b_a_data, &kafka_mode).await; 
+        if let Some(ddb_client) = &*ddb_client_guard {
+            consumer.safe_subscribe(&topic);
+            let mut count = 0;
+            while count < num_records {
+                let b_d_data = consumer.safe_get_consumed().await;  
+                match b_d_data {
+                    Ok(b_d_data) => {
+                        //b_d_data= temp(b_d_data);
+                        pg_client.safe_write_consumed(&b_d_data, &kafka_mode).await;
+                        ddb_client.safe_transaction(b_d_data.0).await;
+                        //db_client.safe_transaction(b_d_data).await;
+                    }
+                    Err(e) => {
+                        eprintln!("kafka: could not consume data error: {:?}, retrying ...", e);
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                    }
                 }
-                Err(e) => {
-                    eprintln!("kafka: could not consume data: {:?}", e);
-                    sleep(Duration::from_secs(1)); // Avoid tight retry loop
-                }
+                count += 1; 
             }
-            count += 1; 
-        } 
+        }
+        
     }
 
 }
@@ -432,7 +668,8 @@ async fn handle(
 struct AppState {
     consumers: Arc<Mutex<HashMap<String, KafkaConsumer>>>,
     brokers: Vec<&'static str>,
-    pg_client: Arc<Mutex<Option<Postgres>>>
+    pg_client: Arc<Mutex<Option<Postgres>>>,
+    ddb_client: Arc<Mutex<Option<DynamoDb>>> 
     // faker_endpoints: Vec<&'static str>
 }
 
@@ -443,8 +680,9 @@ async fn main() {
 
     let brokers = vec!["kafka-3:9092", "kafka-2:9092", "kafka-1:9092"];
     let pg_client = Arc::new(Mutex::new(None));
+    let ddb_client = Arc::new(Mutex::new(None));
     let consumers: Arc<Mutex<HashMap<String, KafkaConsumer>>> = Arc::new(Mutex::new(HashMap::new()));
-    let state = AppState { consumers, brokers, pg_client };
+    let state = AppState { consumers, brokers, pg_client, ddb_client };
     // let app = create_nested_router(state.into());
     let app = create_router(state.into());
     println!("Starting Consumer");

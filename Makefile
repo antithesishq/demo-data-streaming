@@ -62,6 +62,12 @@ build-kafka:
 		-t kafka:latest \
 		kafka
 
+build-ddd:
+	docker build \
+		-f ./dynamoDb/Dockerfile \
+		-t us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/ddd:latest \
+		-t ddd:latest
+
 push-consumer:
 	customer credentials_shell -c "docker push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/consumer:latest"
 

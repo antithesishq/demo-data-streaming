@@ -318,71 +318,31 @@ impl KafkaProducer {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum BankData {
-    BankAccount {
-        id: i32,
-        aba: String,
-        iban: String,
-        swift11: String,
-        bank_country: String,
-        produced_timestamp: Option<SystemTime>,
-        producer_type: Option<String>,
-        consumed_timestamp: Option<SystemTime>,
-        consumer_type: Option<String>,
-        consumed_count: i32
-    },
-    BankTransfer {
-        from: String,
-        to: String,
-        amount: i32 
-    }
+struct BankData {
+    id: i32,
+    data: String, 
+    produced_timestamp: Option<SystemTime>,
+    producer_type: Option<String>,
+    consumed_timestamp: Option<SystemTime>,
+    consumer_type: Option<String>,
+    consumed_count: i32,
+    topic: String
 }
 
 
 
 impl BankData {
-    fn from_row(row: &Row) -> Self {
-        let data_type: String = row.get("type");
-        match data_type.as_str() {
-            "account" => BankData::BankAccount {
-                id: row.get("id"),
-                aba: row.get("aba"),
-                iban: row.get("iban"),
-                swift11: row.get("swift11"),
-                bank_country: row.get("bank_country"),
-                produced_timestamp: row.try_get("produced_timestamp").ok(),
-                producer_type: row.try_get("producer_type").ok(),
-                consumed_timestamp: row.try_get("consumed_timestamp").ok(),
-                consumer_type: row.try_get("consumer_type").ok(),
-                consumed_count: row.get("consumed_count"),
-            },
-            "transfer" => BankData::BankTransfer {
-                from: row.get("from"),
-                to: row.get("to"),
-                amount: row.get("amount"),
-            },
-            other => {
-                panic!("producer: unknown BankData type: {}", other)
-            }
-        } 
-    }
-
-    fn query_unproduced_data(&self) -> String {
-        let base_query = "
-            SELECT * 
-            FROM producer 
-            WHERE produced_timestamp IS NULL and type = {}
-            ORDER BY id ASC 
-            LIMIT $1;
-        ";
-        match &self {
-            BankData::BankAccount{ .. } => format!(base_query, "bank_account"),
-            BankData::BankTransfer { from, to, amount } => format!(base_query, "bank_transfer")
-        }        
-    }
-
-    fn get_ids() {
-
+    fn from_row(row: &Row) -> Self { 
+        BankData {
+            id: row.get("id"),
+            data: row.get("data"), 
+            produced_timestamp: row.try_get("produced_timestamp").ok(),
+            producer_type: row.try_get("producer_type").ok(),
+            consumed_timestamp: row.try_get("consumed_timestamp").ok(),
+            consumer_type: row.try_get("consumer_type").ok(),
+            consumed_count: row.get("consumed_count"),
+            topic: row.get("topic")
+        }
     }
 }
 
@@ -400,7 +360,7 @@ impl Postgres {
         Ok(Postgres { client })
     }
 
-    async fn safe_get_unproduced_data(&self, limit: i64) -> Vec<BankAccount> {
+    async fn safe_get_unproduced_data(&self, limit: i64) -> Vec<BankData> {
         let query = "
             SELECT * 
             FROM producer 
@@ -426,15 +386,15 @@ impl Postgres {
                 }
             }
         };
-        let accounts: Vec<BankAccount> = rows
+        let accounts: Vec<BankData> = rows
             .iter()
-            .map(BankAccount::from_row)
+            .map(BankData::from_row)
             .collect(); // Collect directly since there are no errors in `from_row`
         accounts
             // TRY USE THIS: use serde_postgres::de::from_row;
     }
 
-    async fn safe_write_produced(&self, b_a: &BankAccount, route: &'static str) {
+    async fn safe_write_produced(&self, b_a: &BankData, route: &'static str) {
         let update = "
             UPDATE producer
             SET 
@@ -526,7 +486,7 @@ async fn handle(
             Postgres::new("host=state-tracker user=u password=p dbname=d ")
             .await
             .map_err(|e| {
-                error!("Failed to initialize Postgres {:?}", e);
+                eprintln!("postgres: failed to initialize Postgres {:?}", e);
                 e
             })
             .unwrap()
@@ -543,8 +503,8 @@ async fn handle(
             let bank_account_str = serde_json::to_string(&bank_account)
             // Use `anyhow` ?
                 .map_err(|e| {
-                    error!("Failed to serialize BankAccount to JSON {:?}", e);
-                    assert_unreachable!("Producer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
+                    eprintln!("kafka: failed to serialize BankData to string: {:?}", e);
+                    assert_unreachable!("Producer failed to serialize BankData to string", &json!({"error": format!("{:?}", e)}));
                     e
                 }).unwrap();
             let msg: String = format!("{}", &bank_account_str);
@@ -570,7 +530,7 @@ async fn handle(
 #[tokio::main]
 async fn main() {
     antithesis_init();
-    info!("{:?}", SystemTime::now().duration_since(UNIX_EPOCH));
+    println!("{:?}", SystemTime::now().duration_since(UNIX_EPOCH));
     env_logger::init();
 
     let producers: Arc<Mutex<HashMap<String, KafkaProducer>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -583,7 +543,7 @@ async fn main() {
     // let app = 
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    info!("Server running at http:{:?}", listener);
+    println!("Server running at http:{:?}", listener);
     
     axum::serve(listener, app).await.unwrap();    
 }

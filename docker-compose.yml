@@ -108,6 +108,23 @@ services:
     networks:
       kafka-net:
         ipv4_address: 11.0.0.19
+  ddb:
+    container_name: ddb
+    hostname: ddb
+    image: docker.io/amazon/dynamodb-local
+    ports:
+      - "8000:8000"
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.20
+  ddd:
+    container_name: ddd
+    hostname: ddd
+    image: dynodebug:latest
+    entrypoint: sleep infinity
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.21
 networks:
   kafka-net:
     driver: bridge
