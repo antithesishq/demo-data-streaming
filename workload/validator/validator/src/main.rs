@@ -39,33 +39,30 @@ use clap::{Arg, Command, ValueEnum};
 //      trivial sql statement
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct BankAccount {
+struct BankData {
     id: i32,
-    aba: String,
-    iban: String,
-    swift11: String,
-    bank_country: String,
+    data: String, 
     produced_timestamp: Option<SystemTime>,
     producer_type: Option<String>,
     consumed_timestamp: Option<SystemTime>,
     consumer_type: Option<String>,
-    consumed_count: i32
-    // consumed: bool
+    consumed_count: i32,
+    topic: String
 }
 
-impl BankAccount {
-    fn from_row(row: &Row) -> Self {
-        BankAccount {
+
+
+impl BankData {
+    fn from_row(row: &Row) -> Self { 
+        BankData {
             id: row.get("id"),
-            aba: row.get("aba"),
-            iban: row.get("iban"),
-            swift11: row.get("swift11"),
-            bank_country: row.get("bank_country"),
+            data: row.get("data"), 
             produced_timestamp: row.try_get("produced_timestamp").ok(),
             producer_type: row.try_get("producer_type").ok(),
             consumed_timestamp: row.try_get("consumed_timestamp").ok(),
             consumer_type: row.try_get("consumer_type").ok(),
-            consumed_count: row.get("consumed_count")
+            consumed_count: row.get("consumed_count"),
+            topic: row.get("topic")
         }
     }
 }
@@ -83,7 +80,7 @@ impl Postgres {
         Ok(Postgres { client })
     }
 
-    async fn get_produced_data(&self) -> Result<Vec<BankAccount>, Error> {
+    async fn get_produced_data(&self) -> Result<Vec<BankData>, Error> {
         let query = "
             SELECT * 
             FROM producer 
@@ -100,15 +97,15 @@ impl Postgres {
                 e
             })?;
 
-        let accounts: Vec<BankAccount> = rows
+        let accounts: Vec<BankData> = rows
             .iter()
-            .map(BankAccount::from_row)
+            .map(BankData::from_row)
             .collect();
 
         Ok(accounts)
     }
 
-    async fn get_consumed_data(&self) -> Result<Vec<BankAccount>, Error> {
+    async fn get_consumed_data(&self) -> Result<Vec<BankData>, Error> {
         let query = "
             SELECT * 
             FROM producer 
@@ -124,15 +121,15 @@ impl Postgres {
                 e
             })?;
 
-        let accounts: Vec<BankAccount> = rows
+        let accounts: Vec<BankData> = rows
             .iter()
-            .map(BankAccount::from_row)
+            .map(BankData::from_row)
             .collect();
         
         Ok(accounts)
     }
 
-    async fn check_exactly_once_producer_guarantee(&self) -> Result<Vec<BankAccount>, Error> {
+    async fn check_exactly_once_producer_guarantee(&self) -> Result<Vec<BankData>, Error> {
         let query = "
             SELECT *
             FROM producer
@@ -147,9 +144,9 @@ impl Postgres {
                 e
             })?;
         
-        let accounts: Vec<BankAccount> = rows
+        let accounts: Vec<BankData> = rows
             .iter()
-            .map(BankAccount::from_row)
+            .map(BankData::from_row)
             .collect();
         
         Ok(accounts)
@@ -163,7 +160,7 @@ enum Tests {
     ProducerConsumerMatches
 }
 
-fn find_broken_id_sequence(b_as: &[BankAccount]) -> Vec<BankAccount> {
+fn find_broken_id_sequence(b_as: &[BankData]) -> Vec<BankData> {
     b_as.windows(2)
         .filter_map(|pair| {
             if pair[0].id + 1 != pair[1].id {
@@ -175,7 +172,7 @@ fn find_broken_id_sequence(b_as: &[BankAccount]) -> Vec<BankAccount> {
         .collect()
 }
 
-fn find_produced_data_thats_not_consumed_yet(b_as: &[BankAccount]) -> Vec<BankAccount> {
+fn find_produced_data_thats_not_consumed_yet(b_as: &[BankData]) -> Vec<BankData> {
     b_as.iter()
         .filter_map(|b_a| {
             if b_a.produced_timestamp.is_some() && b_a.consumed_timestamp.is_some() {
@@ -187,7 +184,7 @@ fn find_produced_data_thats_not_consumed_yet(b_as: &[BankAccount]) -> Vec<BankAc
         .collect() 
 }
 
-async fn run_check_for_30s(pg_client: Postgres) -> Option<Vec<BankAccount>> {
+async fn run_check_for_30s(pg_client: Postgres) -> Option<Vec<BankData>> {
     let start_time = Instant::now();
     let duration = Duration::from_secs(30);
     let mut last_result = None;

@@ -1,5 +1,5 @@
 FROM ubuntu:latest
-RUN apt update && apt install -y curl less unzip
+RUN apt update && apt install -y curl less unzip jq
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 RUN unzip awscliv2.zip && ./aws/install
 RUN aws configure set aws_access_key_id dummy

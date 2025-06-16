@@ -64,6 +64,10 @@ use aws_sdk_dynamodb::{
         ScalarAttributeType, Update, TransactWriteItem
     }, 
 };
+use aws_sdk_dynamodb::config::Credentials;
+use aws_sdk_dynamodb::config::SharedCredentialsProvider;
+//use aws_types::SharedCredentialsProvider;
+//use aws_types::Credentials;
 
 
 fn is_retryable_error(error_msg: &str) -> bool {
@@ -83,8 +87,18 @@ struct DynamoDb {
 
 impl DynamoDb {
     async fn new() -> Result<Self> {
+        //let credentials = Credentials::from_keys("dummy", "dummy", None);
+        let credentials = Credentials::new(
+            "dummy",
+            "dummy",
+            None,
+            None,
+            "dummy",
+        );
+        let shared = SharedCredentialsProvider::new(credentials);
         let config = aws_config::from_env()
             .region(RegionProviderChain::default_provider().or_else("us-east-1"))
+            .credentials_provider(shared)
             .endpoint_url("http://ddb:8000") 
             .load()
             .await;
@@ -352,14 +366,6 @@ impl BankData {
 
 
 
-
-
-impl BankTransaction {
-    
-}
-
-
-
 // A context can be used to change the behavior of producers and consumers by adding callbacks
 // that will be executed by librdkafka.
 // This particular context sets up custom callbacks to log rebalancing events.
@@ -511,49 +517,13 @@ impl KafkaConsumer {
                 println!("kafka: consumed message failed to deserialize: {:?}", e);
                 assert_sometimes!(false, "Consumer's consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
                 anyhow::Error::from(e)
-                //e.into() // convert to anyhow::Error
             })?;
 
         println!("kafka: consumed message deserializable to BankData: {:?}", b_d);
         assert_sometimes!(false, "Consumer's consumed message deserialized to BankData", &json!({ "result": format!("{:?}", b_d) }));
 
         Ok((b_d, current_timestamp))
-    }
-
-    // async fn safe_get_consumed(&mut self) -> Result<(BankData, NaiveDateTime), Error> {
-    //     match self.consumer.as_ref().unwrap().recv().await {
-    //         Ok(message) => {
-    //             assert_sometimes!(true, "Consumer consumed data", &json!({"value": format!("{:?}", message)}));
-    //             if let Some(payload) = message.payload_view::<str>() {
-    //                 match payload {
-    //                     Ok(text) => {
-    //                         let current_timestamp = chrono::Utc::now().naive_utc();
-    //                         println!("kafka: Consumed message has correct string decoding");
-    //                         assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
-    //                         let b_a = serde_json::from_str::<BankData>(text.trim())
-    //                             .inspect_err(|e| {
-    //                                 eprintln!("kafka: Can't deserialize BankData from producer");
-    //                                 assert_unreachable!("Consumer failed to deserialize BankData from JSON", &json!({"error": format!("{:?}", e)}));
-    //                             })?
-    //                         println!("kafka: Received deserializable message: {:?}", b_a);
-    //                         Ok((b_a, current_timestamp))
-    //                     },
-    //                     Err(e) => {
-    //                         eprintln!("kafka: Failed to decode message payload: {}", e);
-    //                         assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("{:?}", e)}));
-    //                         Err(e)
-    //                     },
-    //                 }
-    //             } 
-    //         }
-    //         Err(e) => {
-    //             eprintln!("kafka: Error while consuming: {}", e);
-    //             assert_sometimes!(false, "Consumer consumed data", &json!({"error": format!("{:?}", e)}));
-    //             Err(e)
-    //         }
-    //     }
-    // }
-    
+    } 
 }
 
 
@@ -571,8 +541,6 @@ fn create_router(state: Arc<AppState>) -> Router {
 fn create_nested_router(state: Arc<AppState>, mode: KafkaConsumers) -> Router{
      Router::new()
         .route("/:topic/:num_records", post(handle))
-        // .route("/single/:topic", post(handle_single))
-        // .route("/batch_sequential/:topic/:", post(handle_sequential_batch))
         .with_state(state) // Attach state to the router
         .layer(middleware::from_fn(move |req, next| {
             add_context_middleware(req, next, mode.clone())
