@@ -8,11 +8,27 @@ This is a sales demo aimed at organizations that build applications with a distr
 
 ## Highlight of the demo
 
-For now, the demo focuses on testing for **correctness** related guarantees such as:
+Currently the demo spins up multiple producers and consumers exercising different semantics that a business application using Kafka might rely on
+The different configurations spun up:
 
-1. Producer produced at least once
-2. Consumer consumed exactly once
-3. Consumer consumed at least once
+1. Producer and Consumer implementation using "atleast once" delivery semantics using streaming mode
+2. Producer and Consumer implementation using "atleast once" delivery semantics using batch mode
+3. Producer and Consumer implementation using "exactly once" delivery semantics using streaming mode
+4. Producer and Consumer implementation using "atleast once" delivery semantics using batch mode
+
+Currently, the demo focuses on testing the following **correctness** related guarantees:
+
+1. Data being generated is produced by the Kafka Producers
+2. Data is consumed by the Kafka Consumers
+3. "exactly once" semantics are implemented correctly
+   - We have an implementation of a producer and consumer according to Kafka's "exactly once" semantics
+   - Our test validates that that this guarantee is held through an entire test
+4. "atleast once" semantics are implemented correcty
+   - Our test validates that all data that is produced by the producer is consumed "atleast once"
+
+Additionally, we test the following **availability** related guarantee:
+
+1. When the producer is stopped for 30s and we only consume for 30s, produced data should be consumed
 
 The impact of these guarantee violations will result in downstream business impact such as duplicate records created, potential data-loss, etc. 
 
