@@ -9,9 +9,9 @@ run:
 down: 
 	docker-compose down
 
-build-all: build-consumer build-producer build-validator build-data_generator build-pgsql_client build-kafka
+build-all: build-consumer build-producer build-validator build-data_generator build-pgsql_client build-kafka build-ddd
 
-push-all: push-consumer push-producer push-validator push-data_generator push-pgsql_client push-kafka
+push-all: push-consumer push-producer push-validator push-data_generator push-pgsql_client push-kafka push-ddd
 
 build-consumer:
 	docker build \
@@ -89,3 +89,5 @@ push-config:
 push-kafka:
 	customer credentials_shell -c "docker push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/kafka:latest"
 
+push-ddd:
+	customer credentials_shell -c "docker push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/ddd:latest"

@@ -6,4 +6,4 @@ RUN aws configure set aws_access_key_id dummy
 RUN aws configure set aws_secret_access_key dummy
 RUN aws configure set region us-east-1
 RUN aws configure set output json
-entrypoint ["sleep infinity"]
+ENTRYPOINT ["sleep infinity"]
