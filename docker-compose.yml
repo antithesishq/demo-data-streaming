@@ -144,6 +144,9 @@ services:
     image: validator:latest
     hostname: validator
     container_name: validator
+    environment:
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
     networks:
       kafka-net:
         ipv4_address: 11.0.0.19
@@ -171,7 +174,7 @@ services:
   ddd:
     container_name: ddd
     hostname: ddd
-    image: dynodebug:latest
+    image: ddd:latest
     entrypoint: sleep infinity
     networks:
       kafka-net:

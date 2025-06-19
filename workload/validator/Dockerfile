@@ -1,7 +1,8 @@
 FROM docker.io/rust:latest
 COPY /validator /validator
 WORKDIR /validator
-RUN apt update && apt install -y cmake
+RUN apt update && apt install -y cmake python3-pip
+RUN pip install boto3 antithesis --break-system-packages
 RUN cargo build
 COPY ./validator/eventually_producer_consumer_matches_test.sh /opt/antithesis/test/v1/demo/eventually_producer_consumer_matches_test.sh
 COPY ./validator/parallel_driver_exactly_once_passthrough_consumer.sh /opt/antithesis/test/v1/demo/parallel_driver_exactly_once_passthrough_consumer.sh
