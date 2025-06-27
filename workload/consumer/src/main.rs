@@ -37,6 +37,8 @@ use axum::{
 
 use antithesis_sdk::prelude::*;
 
+use aws_sdk_dynamodb::{Client, Error};
+
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use serde_json::json;
@@ -94,6 +96,59 @@ impl Postgres {
     }
 }
 
+impl DynamoDB {
+    /* TODO
+       - persist bank account
+       - persist to psql (assumption is only persist after transaction successful)
+     */
+
+    pub async fn new() -> Result<(), Error> {
+        let shared_config = aws_config::load_from_env().await;
+        let client = Client::new(&shared_config);
+        let req = client.list_tables().limit(10);
+        let resp = req.send().await?;
+        println!("Current DynamoDB tables: {:?}", resp.table_names);
+        Ok(())
+    }
+
+    async fn write_consumed(&self, b_t: &BankTransaction, mode: &KafkaConsumers) -> Result<(), Error> {
+        let update_sender = TransactWriteItem::builder()
+            .update(
+                Update::builder()
+                    .table_name("accounts")
+                    .key("account_id", b_t.sender)
+                    .update_expression("SET balance = balance - :amt")
+                    .expression_attribute_values(":amt", b_t.amount)
+                    .build()
+            )
+            .build()
+        
+        let update_receiver = TransactWriteItem::builder()
+            .update(
+                Update::builder()
+                    .table_name("accounts")
+                    .key("account_id", b_t.receiver)
+                    .update_expression("SET balance = balance + :amt")
+                    .expression_attribute_values(":amt", b_t.amount)
+                    .build()
+            )
+            .build()
+
+        let resp = client
+            .transact_write_items()
+            .transact_items(update_sender, update_receiver)
+            .send()
+            .await;
+
+        match resp {
+            Ok(()) => assert_sometimes!(false, "Transactions succeeded", &json!({
+                "sender": b_t.sender, "receiver": b_t.receiver, "amount": b_t.amount
+            }));
+            Error(e) =>  assert_sometimes!(false, "Transaction failed", &json!({"error": format!("Transaction failed: {}", e)}));
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct BankAccount {
     id: i32,
@@ -117,6 +172,21 @@ impl BankAccount {
             iban: row.get("iban"),
             swift11: row.get("swift11"),
             bank_country: row.get("bank_country"),
+            produced_timestamp: row.try_get("produced_timestamp").ok(),
+            producer_type: row.try_get("producer_type").ok(),
+            consumed_timestamp: row.try_get("consumed_timestamp").ok(),
+            consumer_type: row.try_get("consumer_type").ok(),
+            consumed_count: row.get("consumed_count")
+        }
+    }
+}
+
+impl BankTransaction {
+    fn from_row(row: &Row) -> Self {
+        BankTransaction {
+            sender: row.get("sender"),
+            receiver: row.get("receiver"),
+            amount: row.get("amount"),
             produced_timestamp: row.try_get("produced_timestamp").ok(),
             producer_type: row.try_get("producer_type").ok(),
             consumed_timestamp: row.try_get("consumed_timestamp").ok(),
@@ -260,34 +330,46 @@ async fn handle(
             match consumer.recv().await {
                 Ok(message) => {
                     assert_sometimes!(true, "Consumer consumed data", &json!({"value": format!("{:?}", message)}));
-                    if let Some(payload) = message.payload_view::<str>() {
-                        match payload {
-                            Ok(text) => {
-                                assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
-                                let b_a = serde_json::from_str::<BankAccount>(text.trim())
-                                    .map_err(|e| {
-                                        eprintln!("Can't serialize BankAccount from producer");
-                                        assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
-                                        e
-                                    })
-                                    .unwrap();
-                                println!("Received message: {:?}", b_a);
-                                loop {
-                                    match pg_client.write_consumed(&b_a, &mode).await {
-                                        Ok(_) => { break; },
-                                        Err(e) => {
-                                            eprintln!("Failed to send data to postgres {:?}", e);
-                                            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                                            println!("Going to retry  {:?}", e);
+                    match topic {
+                        "bank" => 
+                        /* TODO
+                           - persist data in dynamo
+                         */
+                        if let Some(payload) = message.payload_view::<str>() {
+                            match payload {
+                                Ok(text) => {
+                                    assert_sometimes!(true, "Consumer's consumed message has correct string decoding", &json!({"value": text}));
+                                    let b_a = serde_json::from_str::<BankAccount>(text.trim())
+                                        .map_err(|e| {
+                                            eprintln!("Can't serialize BankAccount from producer");
+                                            assert_unreachable!("Consumer failed to serialize BankAccount to JSON", &json!({"error": format!("Failed to serialize BankAccount to JSON {:?}", e)}));
+                                            e
+                                        })
+                                        .unwrap();
+                                    println!("Received message: {:?}", b_a);
+                                    loop {
+                                        match pg_client.write_consumed(&b_a, &mode).await {
+                                            Ok(_) => { break; },
+                                            Err(e) => {
+                                                eprintln!("Failed to send data to postgres {:?}", e);
+                                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                                                println!("Going to retry  {:?}", e);
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            Err(e) => {
-                                eprintln!("Failed to decode message payload: {}", e);
-                                assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
-                            },
+                                },
+                                Err(e) => {
+                                    eprintln!("Failed to decode message payload: {}", e);
+                                    assert_sometimes!(false, "Consumer's consumed message has correct string decoding", &json!({"error": format!("Failed to decode message payload: {}", e)}));
+                                },
+                            }
                         }
+                        "transaction" => 
+                            /* TODO
+                               - read sender + receiver from dynamo
+                               - persist transaction in dynamo
+                            */ 
+                        
                     }
                     count += 1;
                 }

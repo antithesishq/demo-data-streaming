@@ -8,9 +8,10 @@ apt-get -y install curl nano bash
 RUN wget https://bootstrap.pypa.io/get-pip.py
 RUN python3 get-pip.py
 
-RUN pip install faker flask
+RUN pip install faker flask antithesis pydantic
 
-COPY ./base.py /root/base.py 
+COPY ./base.py /root/base.py
+COPY ./custom_providers.py /root/custom_providers.py 
 
 WORKDIR /root
 
