@@ -1,34 +1,28 @@
 services:
   data_generator:
     container_name: data_generator
-    hostname: data-generator
+    hostname: data_generator
     image: data_generator:latest
-    entrypoint: ["flask", "--app", "base", "run", "--debug", "--host=0.0.0.0"]
     # volumes:
     #   - ./base.py:/root/base.py
-    #   - ./custom_providers.py:/root/custom_providers.py
     networks:
       - testnet
   data_store:
     container_name: data_store
-    hostname: data-store
+    hostname: data_store
     image: docker.io/postgres:12.22
     environment:
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
       POSTGRES_DB: d
-    networks:
-      - testnet
   # dumping data from data generator to a pgsql database
   data_generator_client:
     container_name: data_generator_client
-    hostname: data-generator-client
+    hostname: data_generator_client
     image: pgsql_client:latest
     environment:
-      DATA_TYPE: _banktest_transaction
-      BATCH_SAVE_SIZE: 20 # saving # of records per batch
-      BANK_TEST_NO_ACCOUNTS: 20
-      DATA_GENERATOR_ENDPOINT: http://data-generator:5000 # !No trailing slash
+      BATCH_SAVE_SIZE: 500 # saving # of records per batch
+      DATA_GENERATOR_ENDPOINT: http://data_generator:5000 # !No trailing slash
       POSTGRES_HOST: data_store
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
@@ -37,7 +31,7 @@ services:
     # volumes:
     #   - ./pgsql_client.py:/root/pgsql_client.py
     #   - ./pgsql_ep.sh:/root/entrypoint.sh
-    # entrypoint: ["sleep", "infinity"]
+    # entrypoint: /root/entrypoint.sh
     networks:
       - testnet
 
