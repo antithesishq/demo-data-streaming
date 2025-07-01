@@ -1,0 +1,1 @@
+aws dynamodb scan --table-name accounts   --endpoint-url http://ddb:8000 | jq '[.Items[].balance.N | tonumber] | add'
