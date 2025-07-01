@@ -1,0 +1,42 @@
+name: Launch multiverse debugger (parsed)
+
+on: 
+  #manual run
+  workflow_dispatch:
+    inputs:
+      input_string:
+        description: 'Full moment'
+        required: true
+        type: string
+      emails:
+        type: string
+        required: true
+        description: Email receipents
+
+jobs:
+  manual_run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Extract values from moment
+        id: extract
+        run: |
+          input="${{ github.event.inputs.input_string }}"
+          echo "session_id=$(echo $input | sed -n 's/.*id: \([^,}]*\).*/\1/p')" >> "$GITHUB_OUTPUT"
+          echo "input_hash=$(echo $input | sed -n "s/.*), *'\([^']*\)'.*/\1/p")" >> "$GITHUB_OUTPUT"
+          echo "vtime=$(echo $input | sed -n 's/.*,\s*\([0-9]*\.[0-9]*\).*/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: antithesishq/antithesis-trigger-action@main 
+        with:
+          notebook_name: launch_debugging
+          tenant: demo
+          username: ${{ secrets.ANTITHESIS_USER_NAME }}
+          password: ${{ secrets.ANTITHESIS_PASSWORD }}
+          github_token: ${{ secrets.GH_PAT }}
+          description: "Debugging session from Github actions"
+          email_recipients: demo-notifications.231bba29dc150b687d3f3d9370e63ada.show-sender@streams.zulipchat.com;${{ github.event.inputs.emails }}
+          additional_parameters: |-
+            antithesis.debugging.session_id=${{ steps.extract.outputs.session_id }}
+            antithesis.debugging.input_hash=${{ steps.extract.outputs.input_hash }}
+            antithesis.debugging.vtime=${{ steps.extract.outputs.vtime }}

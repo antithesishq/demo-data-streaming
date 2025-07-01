@@ -1,0 +1,53 @@
+name: Get Full Logs (No SSO needed)
+
+on: 
+  #manual run
+  workflow_dispatch:
+    inputs:
+      session_id:
+        type: string
+        required: true
+        description: Antithesis test session
+      input_hash:
+        type: string
+        required: true
+        description: Input hash for the moment
+      vtime:
+        type: string
+        required: true
+        description: Vtime for the moment
+      # capture_before_time:
+      #   type: string
+      #   required: true
+      #   default: '10'
+      #   description: Amount of time before the moment
+      # capture_after_time:
+      #   type: string
+      #   required: true
+      #   description: Amount of time after the moment
+      #   default: '10'
+      emails:
+        type: string
+        required: true
+        description: Email receipents
+
+jobs:
+  manual_run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: antithesishq/antithesis-trigger-action@main
+        with:
+          notebook_name: get_full_logs
+          tenant: demo
+          username: ${{ secrets.ANTITHESIS_USER_NAME }}
+          password: ${{ secrets.ANTITHESIS_PASSWORD }}
+          github_token: ${{ secrets.GH_PAT }}
+          description: "Full Log viewer run from github actions"
+          email_recipients: ${{ github.event.inputs.emails }}
+          additional_parameters: |-
+            custom.session_id=${{ github.event.inputs.session_id }}
+            custom.input_hash=${{ github.event.inputs.input_hash }}
+            custom.vtime=${{ github.event.inputs.vtime }}
