@@ -58,7 +58,6 @@ services:
     container_name: data_generator
     hostname: data-generator
     image: data_generator:latest
-    entrypoint: ["flask", "--app", "base", "run", "--debug", "--host=0.0.0.0"]
     networks:
       kafka-net:
         ipv4_address: 11.0.0.14
@@ -99,7 +98,7 @@ services:
       kafka-net:
         ipv4_address: 11.0.0.16
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready", "-d", "d"]
+      test: ["CMD-SHELL", "pg_isready", "-d", "d", "-U", "u"]
       interval: 5s
       retries: 60
   producer:
@@ -157,7 +156,7 @@ services:
   ddb:
     container_name: ddb
     hostname: ddb
-    image: docker.io/amazon/dynamodb-local
+    image: docker.io/amazon/dynamodb-local:2.6.1
     ports:
       - "8000:8000"
     networks:

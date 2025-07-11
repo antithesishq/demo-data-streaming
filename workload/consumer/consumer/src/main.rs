@@ -456,7 +456,7 @@ impl KafkaConsumer {
             match res {
                 Ok(_) => {
                     println!("kafka: subscribe to topic {}", &topic);
-                    assert_sometimes!(false, "Consumer subscribed to topic", &json!({"result": format!("none")}));
+                    assert_sometimes!(true, "Consumer subscribed to topic", &json!({"result": format!("none")}));
                     break
                 },
                 Err(e) => {
@@ -471,7 +471,7 @@ impl KafkaConsumer {
     async fn safe_get_consumed(&mut self) -> Result<(BankData, NaiveDateTime)> {
         let message = self.consumer.as_ref().unwrap().recv().await
             .map_err(|e| {
-                assert_sometimes!(false, "Consumer failed to receive message", &json!({ "error": format!("{:?}", e) }));
+                assert_sometimes!(false, "Consumer consumed data", &json!({ "error": format!("{:?}", e) }));
                 e
             })?;
 
@@ -506,6 +506,7 @@ impl KafkaConsumer {
             },
             _ => {
                 println!("kafka: not committing, letting auto commit take care of it");
+                assert_sometimes!(true, "Consumer failed to commit offset", &json!({ "error": format!("{:?}", e) }));
             } 
         }
         
@@ -520,7 +521,7 @@ impl KafkaConsumer {
             })?;
 
         println!("kafka: consumed message deserializable to BankData: {:?}", b_d);
-        assert_sometimes!(false, "Consumer's consumed message deserialized to BankData", &json!({ "result": format!("{:?}", b_d) }));
+        assert_sometimes!(true, "Consumer's consumed message deserialized to BankData", &json!({ "result": format!("{:?}", b_d) }));
 
         Ok((b_d, current_timestamp))
     } 
