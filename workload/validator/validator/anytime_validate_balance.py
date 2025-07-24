@@ -18,7 +18,11 @@ accounts = response['Items']
 final_total = sum(account['balance'] for account in accounts)
 expected_total = len(accounts) * initial_balance
 
-always(final_total == expectedTotal, 'Final total equals expected total', {
-    'finalTotal': final_total,
-    'expectedTotal': expected_total
-})
+always(
+    final_total == expected_total, 
+    'Final total equals expected total', 
+    { 
+        'finalTotal': final_total, 
+        'expectedTotal': expected_total 
+    }
+)

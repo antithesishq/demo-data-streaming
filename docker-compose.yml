@@ -71,8 +71,8 @@ services:
     image: pgsql_client:latest
     environment:
       DATA_TYPE: _banktest_transaction
-      BATCH_SAVE_SIZE: 20 # saving # of records per batch
-      BANK_TEST_NO_ACCOUNTS: 20
+      BATCH_SAVE_SIZE: 1000 # saving # of records per batch
+      BANK_TEST_NO_ACCOUNTS: 1000
       DATA_GENERATOR_ENDPOINT: http://data-generator:5000 # !No trailing slash
       POSTGRES_HOST: state-tracker
       POSTGRES_PASSWORD: p

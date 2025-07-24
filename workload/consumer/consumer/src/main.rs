@@ -506,7 +506,7 @@ impl KafkaConsumer {
             },
             _ => {
                 println!("kafka: not committing, letting auto commit take care of it");
-                assert_sometimes!(true, "Consumer failed to commit offset", &json!({ "error": format!("{:?}", e) }));
+                assert_sometimes!(true, "Consumer failed to commit offset", &json!({ "error": "none" }));
             } 
         }
         
