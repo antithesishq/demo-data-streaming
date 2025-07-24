@@ -14,6 +14,7 @@ COPY ./validator/parallel_driver_produce_atleast_once_single.sh /opt/antithesis/
 COPY ./validator/parallel_driver_produce_exactly_once_batch.sh /opt/antithesis/test/v1/demo/parallel_driver_produce_exactly_once_batch.sh
 COPY ./validator/parallel_driver_produce_exactly_once_single.sh /opt/antithesis/test/v1/demo/parallel_driver_produce_exactly_once_single.sh
 COPY ./validator/anytime_validate_balance.py /opt/antithesis/test/v1/demo/anytime_validate_balance.py
+COPY ./validator/eventually_ibans_match.py /opt/antithesis/test/v1/demo/eventually_ibans_match.py
 
 COPY ./entrypoint.sh /entrypoint.sh
 
