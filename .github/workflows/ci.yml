@@ -1,4 +1,4 @@
-name: Build and Push Docker Images to GAR
+name: CI
 
 on:
   schedule:
