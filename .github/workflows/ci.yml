@@ -42,7 +42,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./data-generator
-          file: ./data-generator/data_generator.Dockerfile
+          file: ./data-generator/faker.Dockerfile
           push: true
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/data_generator:${{ github.sha }}
