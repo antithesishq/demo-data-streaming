@@ -137,7 +137,7 @@ jobs:
       - name: Trigger Antithesis
         uses: antithesishq/antithesis-trigger-action@main
         with:
-          notebook_name: ps_demo
+          notebook_name: async_platform
           tenant: demo
           username: ${{ secrets.ANTITHESIS_USER_NAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
