@@ -16,7 +16,7 @@ on:
           description: Email receipents
 
 jobs:
-  Antithesis:
+  Demo:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,13 +33,6 @@ jobs:
           username: _json_key
           password: ${{ secrets.ANTITHESIS_GAR_KEY }}
 
-      - name: Log Into Rose Cheetah Registry
-        uses: docker/login-action@v3
-        with:
-          registry: us-central1-docker.pkg.dev
-          username: _json_key
-          password: ${{ secrets.ROSE_CHEETAH_GAR_KEY }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -52,8 +45,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/demo-data-streaming-config:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/demo-data-streaming-config:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -66,8 +57,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/data_generator:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/data_generator:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/data_generator:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/data_generator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -80,8 +69,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/pgsql_client:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/pgsql_client:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/pgsql_client:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/pgsql_client:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -94,8 +81,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/ddd:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/ddd:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/ddd:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/ddd:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -108,8 +93,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/kafka:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/kafka:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/kafka:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/kafka:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -122,8 +105,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/consumer:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/consumer:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/consumer:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/consumer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -136,8 +117,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/producer:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/producer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -150,8 +129,6 @@ jobs:
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/validator:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/validator:latest
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/validator:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/validator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -180,6 +157,134 @@ jobs:
           email_recipients: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
           additional_parameters: |-
             custom.duration=${{ github.event.inputs.duration || '0.5' }}
+
+  Rose-Cheetah:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log Into Rose Cheetah Registry
+        uses: docker/login-action@v3
+        with:
+          registry: us-central1-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.ROSE_CHEETAH_GAR_KEY }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Push Config Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./config.Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Data Generator Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./data-generator
+          file: ./data-generator/faker.Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/data_generator:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/data_generator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push PostgreSQL Client Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./data-generator
+          file: ./data-generator/pgsql_client.Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/pgsql_client:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/pgsql_client:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push DynamoDB Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./dynamoDb
+          file: ./dynamoDb/Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/ddd:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/ddd:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Kafka Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./kafka
+          file: ./kafka/kafka.Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/kafka:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/kafka:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Consumer Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./workload/consumer
+          file: ./workload/consumer/Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/consumer:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/consumer:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Producer Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./workload/producer
+          file: ./workload/producer/Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/producer:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/producer:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Validator Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./workload/validator
+          file: ./workload/validator/Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/validator:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/validator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Output Image Tags
+        run: |
+          echo "Images pushed with tags:"
+          echo "- demo-data-streaming-config:${{ github.sha }}"
+          echo "- data_generator:${{ github.sha }}"
+          echo "- pgsql_client:${{ github.sha }}"
+          echo "- ddd:${{ github.sha }}"
+          echo "- kafka:${{ github.sha }}"
+          echo "- consumer:${{ github.sha }}"
+          echo "- producer:${{ github.sha }}"
+          echo "- validator:${{ github.sha }}"
 
       - name: Trigger Test on Rose Cheetah
         uses: antithesishq/antithesis-trigger-action@main
