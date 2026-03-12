@@ -22,7 +22,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: antithesishq/antithesis-trigger-action@main
+      - uses: antithesishq/antithesis-trigger-action@v0.10
         with:
           notebook_name: async_platform
           tenant: demo
