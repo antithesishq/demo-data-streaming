@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: "00 22 * * *"
   pull_request: 
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
     inputs:
         duration:
