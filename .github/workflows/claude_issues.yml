@@ -35,8 +35,6 @@ jobs:
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
 
-          # Optional: Pass advanced arguments to Claude CLI
-          # claude_args: |
-          #   --max-turns 10
-          #   --model claude-sonnet-4-20250514
-          #   --allowedTools "Bash(npm install),Bash(npm run build),Bash(npm run test:*)"
+          #Optional: Pass advanced arguments to Claude CLI
+          claude_args: |
+            --allowedTools "WebFetch"
