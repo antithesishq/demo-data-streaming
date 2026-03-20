@@ -223,7 +223,6 @@ impl KafkaProducer {
     pub async fn safe_send(&self, topic: &str, msg: &str, key: &str) -> Result<(), anyhow::Error> {
         match self.kind {
             KafkaProducers::ExactlyOnce | KafkaProducers::ExactlyOnceBatch => {
-                println!("kafka: wow");
                 loop {
                     match self.producer.as_ref().unwrap().begin_transaction() {
                         Ok(_) => {
@@ -290,7 +289,6 @@ impl KafkaProducer {
                 Ok(())
             }
             KafkaProducers::AtLeastOnce | KafkaProducers::AtLeastOnceBatch => {
-                println!("kafka: wow");
                 loop {
                     let send_status = self.producer.as_ref().unwrap().send(
                         FutureRecord::to(topic)
