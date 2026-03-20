@@ -291,7 +291,7 @@ jobs:
       - name: Trigger Test on Rose Cheetah
         uses: antithesishq/antithesis-trigger-action@main
         with:
-          notebook_name: async_platform
+          notebook_name: async_platform_clean
           tenant: rose-cheetah
           username: ${{ secrets.ROSE_CHEETAH_USERNAME }}
           password: ${{ secrets.ROSE_CHEETAH_PASSWORD }}
