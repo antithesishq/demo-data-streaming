@@ -173,3 +173,16 @@ jobs:
           additional_parameters: |-
             custom.duration=${{ github.event.inputs.duration || '0.5' }}
 
+      - name: Trigger no fault test on Demo
+        uses: antithesishq/antithesis-trigger-action@main
+        with:
+          notebook_name: async_platform_clean
+          tenant: demo
+          username: ${{ secrets.ANTITHESIS_USER_NAME }}
+          password: ${{ secrets.ANTITHESIS_PASSWORD }}
+          github_token: ${{ secrets.GH_PAT }}
+          config_image: demo-data-streaming-config:latest
+          description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
+          email_recipients: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
+          additional_parameters: |-
+            custom.duration=${{ github.event.inputs.duration || '0.5' }}
