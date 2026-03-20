@@ -143,13 +143,99 @@ impl Postgres {
                 error!("Failed to perform query: {}", e);
                 e
             })?;
-        
+
         let accounts: Vec<BankData> = rows
             .iter()
             .map(BankData::from_row)
             .collect();
-        
+
         Ok(accounts)
+    }
+
+    async fn check_processor_table_exists(&self) -> bool {
+        let query = "
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'processor'
+            );
+        ";
+        match self.client.query_one(query, &[]).await {
+            Ok(row) => row.get::<_, bool>(0),
+            Err(_) => false,
+        }
+    }
+
+    async fn get_unprocessed_produced_data(&self) -> Result<Vec<BankData>, Error> {
+        // Find records that have been produced to Kafka but not yet processed
+        let query = "
+            SELECT p.*
+            FROM producer p
+            LEFT JOIN processor pr ON p.id = pr.id
+            WHERE p.produced_timestamp IS NOT NULL
+              AND pr.id IS NULL
+            ORDER BY p.id ASC
+        ";
+
+        let rows = self.client
+            .query(query, &[])
+            .await
+            .map_err(|e| {
+                error!("Failed to perform unprocessed data query: {}", e);
+                e
+            })?;
+
+        let accounts: Vec<BankData> = rows
+            .iter()
+            .map(BankData::from_row)
+            .collect();
+
+        Ok(accounts)
+    }
+
+    async fn check_enrichment_risk_scores(&self) -> Result<i64, Error> {
+        let query = "
+            SELECT COUNT(*) FROM processor
+            WHERE risk_score < 0.0 OR risk_score > 1.0
+        ";
+        let row = self.client.query_one(query, &[]).await?;
+        Ok(row.get::<_, i64>(0))
+    }
+
+    async fn check_enrichment_categories(&self) -> Result<i64, Error> {
+        let query = "
+            SELECT COUNT(*) FROM processor
+            WHERE transaction_category NOT IN ('fund', 'transfer_self', 'transfer_small', 'transfer_large', 'unknown', 'parse_error')
+        ";
+        let row = self.client.query_one(query, &[]).await?;
+        Ok(row.get::<_, i64>(0))
+    }
+
+    async fn check_fund_classification(&self) -> Result<i64, Error> {
+        // Fund transactions have an 'iban' field in data; they should be classified as 'fund'
+        let query = "
+            SELECT COUNT(*) FROM processor pr
+            JOIN producer p ON pr.id = p.id
+            WHERE p.data LIKE '%\"iban\"%'
+              AND p.data NOT LIKE '%\"from\"%'
+              AND pr.transaction_category != 'fund'
+        ";
+        let row = self.client.query_one(query, &[]).await?;
+        Ok(row.get::<_, i64>(0))
+    }
+
+    async fn check_self_transfer_classification(&self) -> Result<i64, Error> {
+        // Self-transfers have the same 'from' and 'to' fields; they should be classified as 'transfer_self'
+        // We use a subquery approach since PostgreSQL text LIKE is limited for JSON
+        let query = "
+            SELECT COUNT(*) FROM processor pr
+            JOIN producer p ON pr.id = p.id
+            WHERE p.data::jsonb ? 'from'
+              AND p.data::jsonb ? 'to'
+              AND p.data::jsonb->>'from' = p.data::jsonb->>'to'
+              AND pr.transaction_category != 'transfer_self'
+        ";
+        let row = self.client.query_one(query, &[]).await?;
+        Ok(row.get::<_, i64>(0))
     }
 }
 
@@ -157,7 +243,9 @@ impl Postgres {
 enum Tests {
     ExactlyOnceGuarantee,
     ConsumptionOrder,
-    ProducerConsumerMatches
+    ProducerConsumerMatches,
+    ProcessorMatches,
+    EnrichmentInvariants,
 }
 
 fn find_broken_id_sequence(b_as: &[BankData]) -> Vec<BankData> {
@@ -182,6 +270,28 @@ fn find_produced_data_thats_not_consumed_yet(b_as: &[BankData]) -> Vec<BankData>
             }
         })
         .collect() 
+}
+
+async fn run_processor_check_for_30s(pg_client: &Postgres) -> Option<Vec<BankData>> {
+    let start_time = Instant::now();
+    let duration = Duration::from_secs(30);
+    let mut last_result = None;
+
+    while Instant::now().duration_since(start_time) < duration {
+        match pg_client.get_unprocessed_produced_data().await {
+            Ok(b_as) => {
+                info!("Unprocessed produced data length {:?}", b_as.len());
+                last_result = Some(b_as);
+            }
+            Err(err) => {
+                error!("Failed to get unprocessed produced data: {}", err);
+            }
+        }
+        sleep(Duration::from_millis(5000)).await;
+    }
+
+    info!("Finished processor check after 30 seconds.");
+    last_result
 }
 
 async fn run_check_for_30s(pg_client: Postgres) -> Option<Vec<BankData>> {
@@ -261,6 +371,64 @@ async fn main() {
                         assert_always!(b_as.len() == 0, "Produced data matches consumed data after 30s of not producing and only consuming", &json!({"result": b_as}))
                     },
                     None => {}
+                }
+            }
+            Tests::ProcessorMatches => {
+                if !pg_client.check_processor_table_exists().await {
+                    info!("Processor table does not exist yet, skipping check.");
+                } else {
+                    match run_processor_check_for_30s(&pg_client).await {
+                        Some(b_as) => {
+                            info!("Processor matches check completed");
+                            assert_always!(b_as.len() == 0, "All produced data has been processed by the stream processor after 30s", &json!({"result": b_as}))
+                        },
+                        None => {}
+                    }
+                }
+            }
+            Tests::EnrichmentInvariants => {
+                if !pg_client.check_processor_table_exists().await {
+                    info!("Processor table does not exist yet, skipping check.");
+                } else {
+                    // Check 1: risk_score in valid range [0.0, 1.0]
+                    match pg_client.check_enrichment_risk_scores().await {
+                        Ok(count) => {
+                            assert_always!(count == 0, "All risk scores are within valid range [0.0, 1.0]", &json!({"violations": count}));
+                        },
+                        Err(err) => {
+                            error!("Failed to check risk scores: {}", err);
+                        }
+                    }
+
+                    // Check 2: transaction_category from allowed set
+                    match pg_client.check_enrichment_categories().await {
+                        Ok(count) => {
+                            assert_always!(count == 0, "All transaction categories are from the allowed set", &json!({"violations": count}));
+                        },
+                        Err(err) => {
+                            error!("Failed to check categories: {}", err);
+                        }
+                    }
+
+                    // Check 3: Fund transactions classified as 'fund'
+                    match pg_client.check_fund_classification().await {
+                        Ok(count) => {
+                            assert_always!(count == 0, "Fund transactions are always categorized as fund", &json!({"violations": count}));
+                        },
+                        Err(err) => {
+                            error!("Failed to check fund classification: {}", err);
+                        }
+                    }
+
+                    // Check 4: Self-transfers classified as 'transfer_self'
+                    match pg_client.check_self_transfer_classification().await {
+                        Ok(count) => {
+                            assert_always!(count == 0, "Self-transfers are always categorized as transfer_self", &json!({"violations": count}));
+                        },
+                        Err(err) => {
+                            error!("Failed to check self-transfer classification: {}", err);
+                        }
+                    }
                 }
             }
         }

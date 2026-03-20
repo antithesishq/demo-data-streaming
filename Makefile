@@ -9,9 +9,9 @@ run:
 down: 
 	docker-compose down
 
-build-all: build-consumer build-producer build-validator build-data_generator build-pgsql_client build-kafka build-ddd
+build-all: build-consumer build-producer build-processor build-validator build-data_generator build-pgsql_client build-kafka build-ddd
 
-push-all: push-consumer push-producer push-validator push-data_generator push-pgsql_client push-kafka push-ddd
+push-all: push-consumer push-producer push-processor push-validator push-data_generator push-pgsql_client push-kafka push-ddd
 
 build-consumer:
 	docker build \
@@ -26,6 +26,13 @@ build-producer:
 		-t us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:latest \
 		-t producer:latest \
 		workload/producer
+
+build-processor:
+	docker build \
+		-f ./workload/processor/Dockerfile \
+		-t us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/processor:latest \
+		-t processor:latest \
+		workload/processor
 
 build-validator:
 	docker build \
@@ -74,6 +81,9 @@ push-consumer:
 
 push-producer:
 	customer credentials_shell -c "docker push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:latest"
+
+push-processor:
+	customer credentials_shell -c "docker push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/processor:latest"
 
 push-validator:
 	customer credentials_shell -c "docker push us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/validator:latest"

@@ -5,7 +5,7 @@ use std::fmt::Write;
 use clap::{App, Arg};
 use log::{info, error, debug, warn};
 
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
+use rdkafka::config::ClientConfig;
 use rdkafka::message::{OwnedHeaders, Header, Headers};
 use rdkafka::{ClientContext};
 use rdkafka::consumer::{Consumer, StreamConsumer, Rebalance, BaseConsumer, ConsumerContext, CommitMode};
@@ -423,7 +423,6 @@ impl KafkaConsumer {
                     .set("enable.auto.commit", "true")
                     //.set("statistics.interval.ms", "30000")
                     .set("auto.offset.reset", "earliest")
-                    .set_log_level(RDKafkaLogLevel::Debug)
                     .create_with_context(CustomContext)
                     .expect("Consumer creation failed");
                 println!("kafka: creating atleast once kafka consumer");
@@ -439,7 +438,6 @@ impl KafkaConsumer {
                     .set("isolation.level", "read_committed")
                     .set("enable.auto.commit", "false")        // we have to commit offset ourself
                     .set("auto.offset.reset", "earliest")
-                    .set_log_level(RDKafkaLogLevel::Debug)
                     .create_with_context(CustomContext)
                     .expect("Consumer creation failed");
                 println!("kafka: creating exactly once kafka consumer");

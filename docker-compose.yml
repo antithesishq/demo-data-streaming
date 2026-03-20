@@ -106,7 +106,7 @@ services:
     hostname: producer
     container_name: producer
     environment:
-      RUST_LOG: debug 
+      RUST_LOG: info
     entrypoint: /producer/target/debug/producer
     cap_add:
       - SYS_PTRACE
@@ -125,7 +125,7 @@ services:
     hostname: consumer
     container_name: consumer
     environment:
-      RUST_LOG: debug 
+      RUST_LOG: info
     entrypoint: /consumer/target/debug/consumer
     networks:
       kafka-net:
@@ -170,6 +170,25 @@ services:
         ]
       interval: 5s
       retries: 20
+  processor:
+    image: processor:latest
+    hostname: processor
+    container_name: processor
+    environment:
+      RUST_LOG: info
+    entrypoint: /processor/target/debug/processor
+    cap_add:
+      - SYS_PTRACE
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.22
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
   ddd:
     container_name: ddd
     hostname: ddd

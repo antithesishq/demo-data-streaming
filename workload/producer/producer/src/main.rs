@@ -160,7 +160,6 @@ impl KafkaProducer {
                     .set("message.timeout.ms", "5000")
                     .set("transactional.id", "eactly_once_id")
                     .set("enable.idempotence", "true")
-                    .set("debug", "all")
                     .set("retries", "5") // For exactly-once, higher retries
                     .set("acks", "all")  // Ensure all replicas acknowledge
                     .create::<FutureProducer>()
@@ -175,7 +174,6 @@ impl KafkaProducer {
                     .set("message.timeout.ms", "5000")
                     .set("transactional.id", "eactly_once_id")
                     .set("enable.idempotence", "true")
-                    .set("debug", "all")
                     .set("retries", "5") // For exactly-once, higher retries
                     .set("acks", "all")
                     .set("batch.size", "16384") // 16 KB batch size
@@ -191,7 +189,6 @@ impl KafkaProducer {
                 let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
-                    .set("debug", "all")
                     .create()
                     .expect("kafka: atleast once producer creation error");
                 println!("kafka: creating atleast once kafka producer");
@@ -202,7 +199,6 @@ impl KafkaProducer {
                 let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
-                    .set("debug", "all")
                     .set("batch.size", "16384") // 16 KB batch size
                     .set("linger.ms", "5") // Wait for 5ms before sending a batch, useful with for loops
                     .set("compression.type", "gzip") // Use gzip compression
@@ -223,7 +219,6 @@ impl KafkaProducer {
     pub async fn safe_send(&self, topic: &str, msg: &str, key: &str) -> Result<(), anyhow::Error> {
         match self.kind {
             KafkaProducers::ExactlyOnce | KafkaProducers::ExactlyOnceBatch => {
-                println!("kafka: wow");
                 loop {
                     match self.producer.as_ref().unwrap().begin_transaction() {
                         Ok(_) => {
@@ -290,7 +285,6 @@ impl KafkaProducer {
                 Ok(())
             }
             KafkaProducers::AtLeastOnce | KafkaProducers::AtLeastOnceBatch => {
-                println!("kafka: wow");
                 loop {
                     let send_status = self.producer.as_ref().unwrap().send(
                         FutureRecord::to(topic)
