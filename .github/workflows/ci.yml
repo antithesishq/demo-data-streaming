@@ -122,6 +122,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and Push Processor Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./workload/processor
+          file: ./workload/processor/Dockerfile
+          push: true
+          tags: |
+            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/processor:${{ github.sha }}
+            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/processor:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Build and Push Validator Image
         uses: docker/build-push-action@v5
         with:
@@ -144,6 +156,7 @@ jobs:
           echo "- kafka:${{ github.sha }}"
           echo "- consumer:${{ github.sha }}"
           echo "- producer:${{ github.sha }}"
+          echo "- processor:${{ github.sha }}"
           echo "- validator:${{ github.sha }}"
 
       - name: Trigger Test on Demo
