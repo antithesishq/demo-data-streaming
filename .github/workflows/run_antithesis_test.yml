@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: antithesishq/antithesis-trigger-action@v0.10
         with:
-          notebook_name: async_platform
+          notebook_name: async_platform_clean
           tenant: demo
           username: ${{ secrets.ANTITHESIS_USER_NAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
