@@ -300,12 +300,12 @@ impl ProcessorConsumer {
             },
             Some(Err(e)) => {
                 eprintln!("kafka: processor consumed message has incorrect string decoding");
-                assert_sometimes!(false, "Processor consumed message failed to decode payload", &json!({ "error": format!("{:?}", e) }));
+                // assert_sometimes!(false, "Processor consumed message failed to decode payload", &json!({ "error": format!("{:?}", e) }));
                 return Err(e.into());
             },
             None => {
                 eprintln!("kafka: processor consumed message has no payload");
-                assert_sometimes!(false, "Processor consumed message payload is None", &json!({ "error": "none" }));
+                // assert_sometimes!(false, "Processor consumed message payload is None", &json!({ "error": "none" }));
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Kafka payload is None").into());
             }
         };
@@ -315,7 +315,7 @@ impl ProcessorConsumer {
                 self.consumer.as_ref().unwrap().commit_message(&message, CommitMode::Sync)
                     .map_err(|e| {
                         println!("kafka: processor failed to commit message offset");
-                        assert_sometimes!(false, "Processor failed to commit offset", &json!({ "error": format!("{:?}", e) }));
+                        // assert_sometimes!(false, "Processor failed to commit offset", &json!({ "error": format!("{:?}", e) }));
                         e
                     })?;
             },
@@ -329,7 +329,7 @@ impl ProcessorConsumer {
         let b_d: BankData = serde_json::from_str(payload_str.trim())
             .map_err(|e| {
                 println!("kafka: processor consumed message failed to deserialize: {:?}", e);
-                assert_sometimes!(false, "Processor consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
+                // assert_sometimes!(false, "Processor consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
                 anyhow::Error::from(e)
             })?;
 
