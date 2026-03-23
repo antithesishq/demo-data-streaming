@@ -48,7 +48,7 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 use tokio_postgres::{NoTls, Row};
 
-use std::thread::sleep;
+use tokio::time::sleep;
 use chrono::NaiveDateTime;
 
 use postgres_types::{Type, IsNull};
@@ -417,7 +417,7 @@ impl ProcessorProducer {
                         Err(e) => {
                             eprintln!("kafka: processor failed to begin transaction: retrying..., error: {}", e);
                             assert_sometimes!(false, "Processor successfully began transaction", &json!({"error": format!("{}", e)}));
-                            sleep(Duration::from_secs(1));
+                            sleep(Duration::from_secs(1)).await;
                         }
                     }
                 }
@@ -438,7 +438,7 @@ impl ProcessorProducer {
                         Err((e, _message)) => {
                             eprintln!("kafka: processor failed to produce enriched message, error {}, retrying...", e);
                             assert_sometimes!(false, "Processor produced enriched message to output topic", &json!({"error": format!("{}", e)}));
-                            sleep(Duration::from_secs(1));
+                            sleep(Duration::from_secs(1)).await;
                         }
                     }
                 }
@@ -458,7 +458,7 @@ impl ProcessorProducer {
                                 return Err(anyhow!("Unrecoverable processor transaction error: {:?}", e));
                             }
                             assert_sometimes!(false, "Processor successfully committed transaction", &json!({"error": format!("{}", e)}));
-                            sleep(Duration::from_secs(1));
+                            sleep(Duration::from_secs(1)).await;
                         }
                     }
                 }
@@ -481,7 +481,7 @@ impl ProcessorProducer {
                         Err((e, _message)) => {
                             eprintln!("kafka: processor failed to produce enriched message, error {}, retrying...", e);
                             assert_sometimes!(false, "Processor produced enriched message to output topic", &json!({"error": format!("{}", e)}));
-                            sleep(Duration::from_secs(1));
+                            sleep(Duration::from_secs(1)).await;
                         }
                     }
                 }
@@ -528,7 +528,7 @@ impl Postgres {
                 }
                 Err(e) => {
                     eprintln!("postgres: failed to create processor table: {}, retrying...", e);
-                    sleep(Duration::from_secs(1));
+                    sleep(Duration::from_secs(1)).await;
                 }
             }
         }
@@ -566,7 +566,7 @@ impl Postgres {
                 Err(e) => {
                     eprintln!("postgres: failed to write processed data: id: {}, err: {}", enriched.id, e);
                     assert_sometimes!(false, "Processor recorded processing state to state-tracker", &json!({"error": format!("Failed to upsert for id: {}, err: {}", enriched.id, e)}));
-                    sleep(Duration::from_secs(1));
+                    sleep(Duration::from_secs(1)).await;
                 }
             }
         }
@@ -681,9 +681,19 @@ async fn handle(
         consumer.safe_subscribe(&topic);
         let mut count = 0;
         while count < num_records {
-            let b_d_data = consumer.safe_get_consumed().await;
+            // Use a 10s timeout so the processor can drain all available messages
+            // and return when the topic is empty, rather than blocking forever.
+            let b_d_data = tokio::time::timeout(
+                Duration::from_secs(10),
+                consumer.safe_get_consumed()
+            ).await;
             match b_d_data {
-                Ok((b_d, _timestamp)) => {
+                Err(_elapsed) => {
+                    // Timeout waiting for next message — topic is drained
+                    println!("kafka: processor drained all available messages ({} processed), stopping", count);
+                    break;
+                }
+                Ok(Ok((b_d, _timestamp))) => {
                     // Enrich the data
                     let enriched = enrich(&b_d, processor_mode.get_route());
                     assert_sometimes!(true, "Processor enriched message successfully", &json!({"id": enriched.id, "category": &enriched.transaction_category, "risk_score": enriched.risk_score}));
@@ -702,9 +712,10 @@ async fn handle(
                         pg_client.safe_write_processed(&enriched, &output_topic).await;
                     }
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     eprintln!("kafka: processor could not consume data error: {:?}, retrying ...", e);
-                    sleep(Duration::from_secs(1));
+                    sleep(Duration::from_secs(1)).await;
+                    continue;
                 }
             }
             count += 1;
