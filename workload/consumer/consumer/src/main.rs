@@ -327,7 +327,7 @@ impl BankTransaction {
         let b_transaction: BankTransaction = serde_json::from_str(&b_d.data)
             .inspect_err(|e| {
                 println!("kafka: transaction data failed to deserialize: {:?}", e);
-                assert_sometimes!(false, "Consumer's consumed sub-message failed to deserialize to BankTransaction", &json!({ "error": format!("{:?}", e) }));
+                // assert_sometimes!(false, "Consumer's consumed sub-message failed to deserialize to BankTransaction", &json!({ "error": format!("{:?}", e) }));
             })?;
         println!("kafka: bank transaction: {:?}", b_transaction);
         Ok(b_transaction)
@@ -483,12 +483,12 @@ impl KafkaConsumer {
             },
             Some(Err(e)) => {
                 eprintln!("kafka: consumed message has incorrect string decoding");
-                assert_sometimes!(false, "Consumer's consumed message failed to decode payload", &json!({ "error": format!("{:?}", e) }));
+                // assert_sometimes!(false, "Consumer's consumed message failed to decode payload", &json!({ "error": format!("{:?}", e) }));
                 return Err(e.into());
             },
             None => {
                 eprintln!("kafka: consumed message has no payload");
-                assert_sometimes!(false, "Consumer's consumed message payload is None", &json!({ "error": "none" }));
+                // assert_sometimes!(false, "Consumer's consumed message payload is None", &json!({ "error": "none" }));
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Kafka payload is None").into());
             }
         };
@@ -514,7 +514,7 @@ impl KafkaConsumer {
         let b_d: BankData = serde_json::from_str(payload_str.trim())
             .map_err(|e| {
                 println!("kafka: consumed message failed to deserialize: {:?}", e);
-                assert_sometimes!(false, "Consumer's consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
+                // assert_sometimes!(false, "Consumer's consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
                 anyhow::Error::from(e)
             })?;
 

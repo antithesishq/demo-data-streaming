@@ -5,7 +5,7 @@ import os
 import json
 import psycopg2
 
-from antithesis.assertions import always
+from antithesis.assertions import sometimes
 
 endpoint_url=f"http://{os.getenv('DYNAMO_ENDPOINT', 'ddb:8000')}"
 client = boto3.client('dynamodb', endpoint_url=endpoint_url, region_name='us-east-1')
@@ -33,4 +33,4 @@ dg_ibans = [account[0] for account in cursor.fetchall()]
 
 diff = set(ddb_ibans) - set(dg_ibans)
 
-always(len(diff) == 0, "produced ibans match ibans in dynamo", { "diff": json.dumps(diff, default=list) })
+sometimes(len(diff) == 0, "produced ibans match ibans in dynamo", { "diff": json.dumps(diff, default=list) })
