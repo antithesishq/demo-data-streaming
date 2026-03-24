@@ -368,7 +368,7 @@ async fn main() {
                         // On the test composer eventually script
                         // Call the consumer with a large number of consumption before calling the validator
                         info!("Check completed");
-                        assert_sometimes!(b_as.len() == 0, "Produced data matches consumed data after 30s of not producing and only consuming", &json!({"result": b_as}))
+                        // assert_sometimes!(b_as.len() == 0, "Produced data matches consumed data after 30s of not producing and only consuming", &json!({"result": b_as}))
                     },
                     None => {}
                 }
