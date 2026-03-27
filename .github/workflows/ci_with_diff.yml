@@ -1,4 +1,4 @@
-name: CI
+name: CI with Diff (Rose Cheetah only)
 
 on:
   schedule:
