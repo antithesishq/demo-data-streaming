@@ -26,6 +26,12 @@ jobs:
       id-token: write
 
     steps:
+      - name: Debug token
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/antithesishq/demo-data-streaming/compare/main...${{ github.ref_name }} \
+            | head -5
+
       - name: Checkout code
         uses: actions/checkout@v4
 
