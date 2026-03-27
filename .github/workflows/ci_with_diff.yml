@@ -26,12 +26,6 @@ jobs:
       id-token: write
 
     steps:
-      - name: Debug token
-        run: |
-          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/antithesishq/demo-data-streaming/compare/main...${{ github.ref_name }} \
-            | head -5
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -44,6 +38,19 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Fetch diff
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/antithesishq/demo-data-streaming/compare/main...${{ github.ref_name }}" \
+            > git.diff
+
+      - name: Build and Push Config Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./config.Dockerfile
+          push: true
 
       - name: Build and Push Config Image
         uses: docker/build-push-action@v5
