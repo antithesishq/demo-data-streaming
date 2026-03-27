@@ -58,7 +58,6 @@ jobs:
           file: ./config.Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -70,7 +69,6 @@ jobs:
           file: ./data-generator/faker.Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/data_generator:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/data_generator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -82,7 +80,6 @@ jobs:
           file: ./data-generator/pgsql_client.Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/pgsql_client:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/pgsql_client:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -94,7 +91,6 @@ jobs:
           file: ./dynamoDb/Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/ddd:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/ddd:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -106,7 +102,6 @@ jobs:
           file: ./kafka/kafka.Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/kafka:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/kafka:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -118,7 +113,6 @@ jobs:
           file: ./workload/consumer/Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/consumer:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/consumer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -130,7 +124,6 @@ jobs:
           file: ./workload/producer/Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/producer:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/producer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -142,7 +135,6 @@ jobs:
           file: ./workload/validator/Dockerfile
           push: true
           tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/validator:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/validator:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
