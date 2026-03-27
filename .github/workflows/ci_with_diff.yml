@@ -1,10 +1,9 @@
 name: CI with Diff (Rose Cheetah only)
 
 on:
-  schedule:
-    - cron: "00 22 * * *"
-  pull_request: 
-    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches:
+      - test-git-diff
   workflow_dispatch:
     inputs:
         duration:
