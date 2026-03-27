@@ -46,8 +46,9 @@ jobs:
           file: ./config.Dockerfile
           push: true
           build-args: |
-            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
             BRANCH=${{ github.ref_name }}
+          secrets: |
+            GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:${{ github.sha }}
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:latest
