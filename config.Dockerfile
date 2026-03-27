@@ -6,4 +6,4 @@ RUN curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" "https://api.github.com/r
 
 FROM scratch
 COPY ./docker-compose.yaml /docker-compose.yaml
-COPY --from=builder /git.dff /git.diff
+COPY --from=builder /git.diff /git.diff
