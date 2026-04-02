@@ -299,11 +299,11 @@ impl KafkaProducer {
                         Duration::from_secs(60),
                     ).await;
                     match send_status {
-                        Ok(_) => {
-                            println!("kafka: successfully produced message with topic {}, id {}, msg {}", &topic, &key, &msg);
-                            assert_sometimes!(true, "Successfully produced message", &json!({"result": format!("topic {}, id {}, msg {}", &topic, &key, &msg)}));
-                            break;
-                        },
+                        Ok(_) => { 
+                            println!("kafka: successfully produced message with topic {}, id {}, msg {}", &topic, &key, &msg); 
+                            assert_sometimes!(true, "Successfully produced message", &json!({"result": format!("topic {}, id {}, msg {}", &topic, &key, &msg)})); 
+                            break; 
+                        }, 
                         Err((e, _message)) => {
                             eprintln!("kafka: failed to produce message with topic {}, id {}, msg {}, error {}, retrying...", &topic, &key, &msg, e);
                             assert_sometimes!(false, "Successfully produced message", &json!({"error": format!("{}", e)}));

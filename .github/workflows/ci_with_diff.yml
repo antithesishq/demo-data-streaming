@@ -52,7 +52,7 @@ jobs:
           push: true
           tags: |
             us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:latest
+            us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository/demo-data-streaming-config:git-diff-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -160,7 +160,7 @@ jobs:
           username: ${{ secrets.ROSE_CHEETAH_USERNAME }}
           password: ${{ secrets.ROSE_CHEETAH_PASSWORD }}
           github_token: ${{ secrets.GH_PAT }}
-          config_image: demo-data-streaming-config:latest
+          config_image: demo-data-streaming-config:git-diff-latest
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
           additional_parameters: |-

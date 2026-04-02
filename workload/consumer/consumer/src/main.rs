@@ -245,10 +245,10 @@ impl DynamoDb {
                 .send()
                 .await
             {
-                Ok(_) => {
-                    println!("dynamodb: transfer successful : {} from {} to {}", amount, &from, &to);
-                    break
-                }
+                Ok(_) => { 
+                    println!("dynamodb: transfer successful : {} from {} to {}", amount, &from, &to); 
+                    break 
+                } 
                 Err(e) => {
                     let error_msg = e.to_string(); 
                     if is_retryable_error(&error_msg) {
