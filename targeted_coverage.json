@@ -1,0 +1,39 @@
+{
+  "locations": [
+    {
+      "file": ".github/workflows/ci_with_diff.yml",
+      "begin_line": 1,
+      "end_line": 167
+    },
+    {
+      "file": "config.Dockerfile",
+      "begin_line": 1,
+      "end_line": 3
+    },
+    {
+      "file": "workload/consumer/Dockerfile",
+      "begin_line": 1,
+      "end_line": 27
+    },
+    {
+      "file": "workload/consumer/consumer/src/main.rs",
+      "begin_line": 245,
+      "end_line": 254
+    },
+    {
+      "file": "workload/producer/Dockerfile",
+      "begin_line": 1,
+      "end_line": 29
+    },
+    {
+      "file": "workload/producer/producer/src/main.rs",
+      "begin_line": 299,
+      "end_line": 309
+    },
+    {
+      "file": "workload/validator/Dockerfile",
+      "begin_line": 1,
+      "end_line": 34
+    }
+  ]
+}
