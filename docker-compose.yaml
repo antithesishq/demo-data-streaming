@@ -107,7 +107,16 @@ services:
     container_name: producer
     environment:
       RUST_LOG: debug 
-    entrypoint: /producer/target/debug/producer
+    entrypoint:                                           
+        - sh
+        - -c
+        - |
+          while true; do
+            cat /config/targeted_coverage.json >> /mnt/antithesis/targeted_coverage.json
+            echo >> /mnt/antithesis/targeted_coverage.json
+            sleep 5                       
+          done &
+          exec /producer/target/debug/producer 
     cap_add:
       - SYS_PTRACE
     networks:
@@ -120,6 +129,8 @@ services:
         condition: service_healthy
       kafka-3:
         condition: service_healthy
+    volumes: 
+      - /opt/config:/config
   consumer:
     image: consumer:latest
     hostname: consumer
