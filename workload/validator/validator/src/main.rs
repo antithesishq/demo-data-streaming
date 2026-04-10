@@ -196,9 +196,9 @@ async fn run_check_for_30s(pg_client: Postgres) -> Option<Vec<BankData>> {
                 last_result = Some(find_produced_data_thats_not_consumed_yet(&b_as));
                 //info!("Produced data thats not consumed yet {:?}", last_result);
             }
-            Err(err) => {
-                error!("Failed to get produced data: {}", err);
-            }
+            Err(err) => {  
+                error!("Failed to get produced data: {}", err);  
+            }  
         }
         sleep(Duration::from_millis(5000)).await;
     }
