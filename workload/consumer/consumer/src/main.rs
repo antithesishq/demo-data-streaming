@@ -495,19 +495,19 @@ impl KafkaConsumer {
             }
         };
         
+        // For the exactly-once consumer we defer the offset commit to the end of
+        // the batch (see `KafkaConsumer::safe_commit_batch`) rather than committing
+        // synchronously on every message. A synchronous per-message commit adds a
+        // broker round-trip to the hot path; committing the whole batch once is
+        // substantially cheaper at high throughput.
         match self.kind {
             KafkaConsumers::ExactlyOncePassThroughConsumer => {
-                self.consumer.as_ref().unwrap().commit_message(&message, CommitMode::Sync)
-                    .map_err(|e| {
-                        println!("kafka: failed to commit message offset");
-                        assert_sometimes!(false, "Consumer failed to commit offset", &json!({ "error": format!("{:?}", e) }));
-                        e
-                    })?;
+                println!("kafka: deferring offset commit to end of batch");
             },
             _ => {
                 println!("kafka: not committing, letting auto commit take care of it");
                 assert_sometimes!(true, "Consumer failed to commit offset", &json!({ "error": "none" }));
-            } 
+            }
         }
         
 
@@ -524,7 +524,30 @@ impl KafkaConsumer {
         assert_sometimes!(true, "Consumer's consumed message deserialized to BankData", &json!({ "result": format!("{:?}", b_d) }));
 
         Ok((b_d, current_timestamp))
-    } 
+    }
+
+    // Commit the consumer's current offsets in a single batch. Called once after
+    // the consume loop finishes, instead of committing each message individually,
+    // to keep offset commits off the per-message hot path.
+    fn safe_commit_batch(&self) {
+        match self.kind {
+            KafkaConsumers::ExactlyOncePassThroughConsumer => {
+                match self.consumer.as_ref().unwrap().commit_consumer_state(CommitMode::Sync) {
+                    Ok(_) => {
+                        println!("kafka: committed batch consumer state");
+                        assert_sometimes!(true, "Consumer committed batch offsets", &json!({ "result": "none" }));
+                    },
+                    Err(e) => {
+                        eprintln!("kafka: failed to commit batch consumer state: {:?}", e);
+                        assert_sometimes!(false, "Consumer committed batch offsets", &json!({ "error": format!("{:?}", e) }));
+                    }
+                }
+            },
+            _ => {
+                println!("kafka: batch commit skipped, auto commit is enabled");
+            }
+        }
+    }
 }
 
 
@@ -624,10 +647,13 @@ async fn handle(
                         sleep(Duration::from_secs(1)); // Avoid tight retry loop
                     }
                 }
-                count += 1; 
+                count += 1;
             }
+
+            // The batch has been fully processed; commit the consumed offsets once.
+            consumer.safe_commit_batch();
         }
-        
+
     }
 
 }
