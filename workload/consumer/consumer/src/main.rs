@@ -80,6 +80,14 @@ fn is_retryable_error(error_msg: &str) -> bool {
     error_msg.contains("TransactionConflictException")
 }
 
+// A transfer guarded by `attribute_exists(iban)` was rejected because one of the
+// accounts does not exist. The transact write is cancelled and the cancellation
+// reason is a failed conditional check.
+fn is_missing_account_error(error_msg: &str) -> bool {
+    error_msg.contains("ConditionalCheckFailed") ||
+    error_msg.contains("TransactionCanceled")
+}
+
 #[derive(Debug)]
 struct DynamoDb {
     client: aws_sdk_dynamodb::Client
@@ -212,6 +220,10 @@ impl DynamoDb {
                 .key("iban", AttributeValue::S(from.clone()))
                 .update_expression("ADD balance :amount")
                 .expression_attribute_values(":amount", AttributeValue::N((-amount).to_string()))
+                // Referential integrity: only apply the transfer if the source
+                // account already exists (has been funded). Without this guard an
+                // ADD on a missing key silently creates a phantom account.
+                .condition_expression("attribute_exists(iban)")
                 .build() {
                     Ok(f) => f,
                     Err(e) => {
@@ -225,6 +237,9 @@ impl DynamoDb {
                 .key("iban", AttributeValue::S(to.clone()))
                 .update_expression("ADD balance :amount")
                 .expression_attribute_values(":amount", AttributeValue::N(amount.to_string()))
+                // Referential integrity: only apply the transfer if the destination
+                // account already exists (has been funded).
+                .condition_expression("attribute_exists(iban)")
                 .build() {
                     Ok(f) => f,
                     Err(e) => {
@@ -250,10 +265,22 @@ impl DynamoDb {
                     break
                 }
                 Err(e) => {
-                    let error_msg = e.to_string(); 
+                    let error_msg = e.to_string();
                     if is_retryable_error(&error_msg) {
                         println!("dynamodb: transaction failed with error: {}, retrying ...", error_msg);
                         sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                    } else if is_missing_account_error(&error_msg) {
+                        // The transfer references an account that has not been funded
+                        // yet, so the attribute_exists guard rejected it. With a
+                        // correctly ordered pipeline a transfer is always preceded by
+                        // the funding of both of its accounts, so this should never
+                        // happen.
+                        eprintln!("dynamodb: transfer rejected, account not funded: from {} to {}: {}", &from, &to, error_msg);
+                        assert_unreachable!(
+                            "Transfer applied only to accounts that have been funded",
+                            &json!({ "from": from, "to": to, "amount": amount, "error": error_msg })
+                        );
+                        return
                     } else {
                         eprintln!("dynamodb: fatal error encountered: {}", error_msg);
                         return
