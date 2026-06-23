@@ -228,10 +228,20 @@ impl DynamoDb {
     }
 
     async fn safe_transfer(&self, from: String, to: String, amount: f64) {
+        // Both legs are guarded with `attribute_exists(iban)`. Without this guard,
+        // `ADD balance` would auto-create the account row when the iban does not yet
+        // exist, producing a "phantom" account that was never funded. Because a
+        // transfer arriving before the matching fund (Kafka reordering under faults)
+        // would then vivify the account, the account count would include un-funded
+        // rows -> a transient `sum(balances) < num_accounts * 1000` window even after
+        // the idempotent-fund fix. Guarding here means a transfer can never bring an
+        // account into existence; if the referenced accounts are not funded yet the
+        // whole transaction is cancelled and retried below until the funds land.
         let from_transfer = match Update::builder()
                 .table_name("accounts")
                 .key("iban", AttributeValue::S(from.clone()))
                 .update_expression("ADD balance :amount")
+                .condition_expression("attribute_exists(iban)")
                 .expression_attribute_values(":amount", AttributeValue::N((-amount).to_string()))
                 .build() {
                     Ok(f) => f,
@@ -240,11 +250,12 @@ impl DynamoDb {
                         return;
                     }
                 };
-                
+
         let to_transfer = match Update::builder()
                 .table_name("accounts")
                 .key("iban", AttributeValue::S(to.clone()))
                 .update_expression("ADD balance :amount")
+                .condition_expression("attribute_exists(iban)")
                 .expression_attribute_values(":amount", AttributeValue::N(amount.to_string()))
                 .build() {
                     Ok(f) => f,
@@ -252,7 +263,7 @@ impl DynamoDb {
                         eprintln!("dynamodb: failed to build 'to' account: {} update, error: {}", to, e);
                         return;
                     }
-                }; 
+                };
 
         let transact_items = vec![
             TransactWriteItem::builder().update(from_transfer).build(), 
@@ -271,8 +282,15 @@ impl DynamoDb {
                     break
                 }
                 Err(e) => {
-                    let error_msg = e.to_string(); 
-                    if is_retryable_error(&error_msg) {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("ConditionalCheckFailed") {
+                        // One of the accounts does not exist yet (its fund has not been
+                        // consumed). Wait and retry rather than vivifying a phantom or
+                        // dropping the transfer; the fund is delivered (at-least-once) and
+                        // drained by another consumer in the group, so this resolves.
+                        println!("dynamodb: transfer {} -> {} references an un-funded account, retrying ...", &from, &to);
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                    } else if is_retryable_error(&error_msg) {
                         println!("dynamodb: transaction failed with error: {}, retrying ...", error_msg);
                         sleep(Duration::from_secs(1)); // Avoid tight retry loop
                     } else {
