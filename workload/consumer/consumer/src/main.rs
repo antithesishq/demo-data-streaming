@@ -164,23 +164,40 @@ impl DynamoDb {
     }
 
     async fn safe_fund(&self, iban: String, amount: f64) {
-        let fund = match aws_sdk_dynamodb::types::Put::builder()
+        // Idempotent upsert fund.
+        //
+        // We must not assume the account row was created by this fund: a transfer
+        // (`ADD balance`) can be consumed before the matching fund and auto-create
+        // the row. The old conditional `Put` with `attribute_not_exists(iban)` would
+        // then fail against that pre-existing row and the initial funding would be
+        // lost forever -> `sum(balances) < num_accounts * 1000` (money conservation
+        // violation).
+        //
+        // Instead, `ADD balance :amount` credits the initial funding whether or not
+        // the row already exists (creating it if it doesn't), so a late fund still
+        // lands on top of whatever balance a prior transfer left. A `funded` marker
+        // guarded by `attribute_not_exists(funded)` keeps the operation idempotent:
+        // a redelivered fund message (at-least-once) is a no-op rather than a
+        // double-credit.
+        let fund = match Update::builder()
             .table_name("accounts")
-            .item("iban", AttributeValue::S(iban.clone()))
-            .item("balance", AttributeValue::N(amount.clone().to_string()))
-            .condition_expression("attribute_not_exists(iban)")
+            .key("iban", AttributeValue::S(iban.clone()))
+            .update_expression("SET funded = :funded ADD balance :amount")
+            .condition_expression("attribute_not_exists(funded)")
+            .expression_attribute_values(":amount", AttributeValue::N(amount.to_string()))
+            .expression_attribute_values(":funded", AttributeValue::Bool(true))
             .build() {
                 Ok(f) => f,
                 Err(e) => {
                     eprintln!("dynamodb: failed to build fund transaction, error: {:?}", e);
                     return;
                 }
-            };            
+            };
         let transact_items = vec![
-            TransactWriteItem::builder().put(fund).build(),
-        ]; 
-        
-        loop { 
+            TransactWriteItem::builder().update(fund).build(),
+        ];
+
+        loop {
             match self.client
                 .transact_write_items()
                 .set_transact_items(Some(transact_items.clone()))
@@ -193,9 +210,13 @@ impl DynamoDb {
                 }
                 Err(e) => {
                     let error_msg = e.to_string();
-                    if is_retryable_error(&error_msg) {
-                        eprintln!("dynamodb: fund transaction failed with error: {}, retrying ...", error_msg); 
-                        sleep(Duration::from_secs(1)); // Avoid tight retry loop 
+                    if error_msg.contains("ConditionalCheckFailed") {
+                        // Account already funded (duplicate/redelivered message) -> idempotent no-op.
+                        println!("dynamodb: account {} already funded, skipping (idempotent)", iban);
+                        break;
+                    } else if is_retryable_error(&error_msg) {
+                        eprintln!("dynamodb: fund transaction failed with error: {}, retrying ...", error_msg);
+                        sleep(Duration::from_secs(1)); // Avoid tight retry loop
                     } else {
                         eprintln!("dynamodb: fatal: non-retryable error encountered: {}", error_msg);
                         return
