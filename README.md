@@ -1,104 +1,248 @@
 # Data Streaming Demo
 
-This is a sales demo aimed at organizations that build applications with a distributed/asychronous architecture. It is relevant for organizations that:
+A sales demo that shows how [Antithesis](https://antithesis.com) finds correctness and availability bugs in a Kafka-based pipeline by running the whole system under deterministic fault injection while continuously checking a set of properties.
 
-* Have microservices architecture
-* Use message-broker or streaming technology such as Apache Kafka
-* Use AWS services such as SQS, S3, DynamoDB
+It models a simple bank: fake accounts and transactions are generated, produced to Kafka under four different delivery configurations, consumed back out, and applied to account balances in DynamoDB. Antithesis perturbs the environment (network faults, restarts, message reordering, scheduling) and reports any property that can be violated.
 
-## Highlight of the demo
+The demo is most relevant to organizations that:
 
-Currently the demo spins up multiple producers and consumers exercising different semantics that a business application using Kafka might rely on
-The different configurations spun up:
+* Build on a microservices / asynchronous architecture
+* Use a message broker or streaming technology such as Apache Kafka
+* Use AWS services such as SQS, S3, or DynamoDB
 
-1. Producer and Consumer implementation using "atleast once" delivery semantics using streaming mode
-2. Producer and Consumer implementation using "atleast once" delivery semantics using batch mode
-3. Producer and Consumer implementation using "exactly once" delivery semantics using streaming mode
-4. Producer and Consumer implementation using "atleast once" delivery semantics using batch mode
+## Contents
 
-Currently, the demo focuses on testing the following **correctness** related guarantees:
+* [Why this demo](#why-this-demo)
+* [Architecture](#architecture)
+* [Repository layout](#repository-layout)
+* [Quickstart](#quickstart)
+  * [Prerequisites](#prerequisites)
+  * [Run locally](#run-locally)
+  * [Launch an Antithesis test](#launch-an-antithesis-test)
+* [Properties under test](#properties-under-test)
+  * [How validation works](#how-validation-works)
+  * [Sanity-checking test templates locally](#sanity-checking-test-templates-locally)
+* [Components](#components)
+* [Contributing](#contributing)
+* [Roadmap](#roadmap)
 
-1. Data being generated is produced by the Kafka Producers
-2. Data is consumed by the Kafka Consumers
-3. "exactly once" semantics are implemented correctly
-   - We have an implementation of a producer and consumer according to Kafka's "exactly once" semantics
-   - Our test validates that that this guarantee is held through an entire test
-4. "atleast once" semantics are implemented correcty
-   - Our test validates that all data that is produced by the producer is consumed "atleast once"
+## Why this demo
 
-Additionally, we test the following **availability** related guarantee:
+Distributed pipelines make guarantees that are easy to state and hard to keep: "exactly once", "at least once", "messages are processed in order", "money is never lost". These guarantees usually hold on a good day and break only under the rare interleaving of a crash, a retry, and a rebalance — exactly the conditions that are hard to reproduce in a normal test suite.
 
-1. When the producer is stopped for 30s and we only consume for 30s, produced data should be consumed
+Antithesis runs this system in a deterministic hypervisor, injects faults, and explores the state space looking for an execution that violates a property. When it finds one, the exact run is fully reproducible and can be replayed in the multiverse debugger. This demo wires up real-world delivery semantics so those violations — duplicate processing, dropped records, out-of-order consumption, invented or lost money — can be surfaced and explained.
 
-The impact of these guarantee violations will result in downstream business impact such as duplicate records created, potential data-loss, etc. 
+## Architecture
 
-## Running the demo (coming soon!)
+```
+                 ┌──────────────────┐
+                 │  data_generator  │  Flask + Faker HTTP service
+                 │   (port 5000)    │  generates fake bank data
+                 └────────┬─────────┘
+                          │ HTTP (fetch batches)
+                          ▼
+               ┌──────────────────────┐
+               │ data_generator_client│ continuously fetches + inserts
+               └──────────┬───────────┘
+                          │ INSERT
+                          ▼
+               ┌─────────────────────┐
+               │   state-tracker     │  Postgres "producer" table:
+               │     (Postgres)      │  source of truth for produced/consumed
+               └──┬───────────────▲──┘
+          read    │               │  record produced / consumed timestamps
+       unproduced │               │
+                  ▼               │
+            ┌──────────┐    ┌──────────┐       ┌──────────┐
+            │ producer │───▶│  Kafka   │──────▶│ consumer │
+            │  (axum)  │    │ 3 brokers│       │  (axum)  │
+            └──────────┘    │  (KRaft) │       └────┬─────┘
+                            └──────────┘            │ apply transactions
+                                                    ▼
+                                              ┌──────────┐
+                                              │   ddb    │ DynamoDB-local
+                                              │ balances │ (accounts table)
+                                              └──────────┘
 
-1. Use the Github action to trigger a test and include your email as a receipent to the report.
-2. (Optional) Generate a bug report from one of the issues found from the report.
-3. Run the interactive debugging notebook to show basic concepts around the multiverse debugger
+            ┌───────────┐   reads state-tracker + DynamoDB and asserts
+            │ validator │   correctness / availability properties
+            └───────────┘
+```
 
+The **state-tracker** is the source of truth: every generated record is one Postgres row whose lifecycle columns record when and how it was produced and consumed. The **validator** and the **test-composer** scripts are driven by Antithesis to apply load and check properties while faults are injected.
 
-## Contribute to the Demo
+## Repository layout
 
-## Run things locally
+```
+.
+├── docker-compose.yaml        # the full system under test (used locally and by Antithesis)
+├── config.Dockerfile          # packages docker-compose.yaml into a "config image"
+├── Makefile                   # build / push / run targets
+├── data-generator/            # Flask + Faker service and the Postgres loader client
+├── kafka/                     # 3-broker Kafka (KRaft) image
+├── dynamoDb/                  # DynamoDB-local helpers (AWS CLI tooling)
+├── workload/
+│   ├── producer/              # Rust/axum producer (4 delivery modes)
+│   ├── consumer/              # Rust/axum passthrough consumer (2 modes)
+│   └── validator/             # Rust validator CLI + test-composer scripts
+└── .github/workflows/         # CI + Antithesis trigger / debugging workflows
+```
 
-The simplest way to run the demo stack is to run
+## Quickstart
 
-`make run` or manually do `docker-compose up -d`
+### Prerequisites
 
-You can also run `make all` to build all of the container images and run the stack
+* **Docker** and the **`docker compose`** plugin — everything builds and runs in containers, so no local Rust/Python toolchain is required.
+* **`make`** — for the convenience targets in the [`Makefile`](Makefile).
+* To **push** images you need credentials for the demo's container registry (the `push-*` targets call `customer credentials_shell`).
 
-## Sanity-check test templates locally
+### Run locally
 
-(TBD)
+```bash
+make all     # build all images, then start the stack
+# or, separately:
+make build-all
+make run     # docker-compose up -d
+make down    # docker-compose down
+```
 
-## Test Properties
+Individual images can be built or pushed with the per-component targets, e.g. `make build-producer` / `make push-producer`. Images are tagged both locally (`producer:latest`) and for the registry.
 
-### how we are validating things
+### Launch an Antithesis test
 
-### producer
+1. Build and push the images (`make build-all && make push-all`) and the config image (`make build-config && make push-config`).
+2. Run the [`Run Antithesis Test`](.github/workflows/run_antithesis_test.yml) GitHub Action (`workflow_dispatch`), providing:
+   * `duration` — how long the test runs, in hours
+   * `emails` — comma-separated recipients for the report
+3. When the report arrives, optionally open a finding in the **multiverse debugger** to replay and inspect the exact failing run.
 
-### passthrough consumer
+The action submits the locally-built images plus a `config_image` — a `FROM scratch` image carrying only `docker-compose.yaml` — to the `async_platform` notebook in the `demo` tenant via the [`antithesis-trigger-action`](https://github.com/antithesishq/antithesis-trigger-action).
 
-## How to contribute
+## Properties under test
+
+Properties are expressed with [Antithesis SDK](https://antithesis.com/docs/using_antithesis/sdk/) assertions (`assert_always`, `assert_sometimes`, `assert_reachable`, `assert_unreachable`) embedded in the producer, consumer, and validator, plus standalone test-composer scripts.
+
+| # | Property | Kind | Where checked |
+|---|----------|------|---------------|
+| 1 | Generated data is produced to Kafka | liveness | producer (`assert_sometimes`) |
+| 2 | Produced data is consumed from Kafka | liveness | consumer (`assert_sometimes`) |
+| 3 | **Exactly-once**: no record is consumed more than once | correctness | `validator --test exactly-once-guarantee` |
+| 4 | **At-least-once**: every produced record is eventually consumed | correctness | `validator --test producer-consumer-matches` |
+| 5 | **Ordering**: consumption order matches generation order | correctness | `validator --test consumption-order` |
+| 6 | **Conservation of money**: total balance never changes from transfers | correctness | [`anytime_validate_balance.py`](workload/validator/test-composer/anytime_validate_balance.py) |
+| 7 | Every account in DynamoDB was actually produced and consumed | correctness | [`eventually_ibans_match.py`](workload/validator/test-composer/eventually_ibans_match.py) |
+| 8 | With production stopped, all produced data is consumed within 30s | availability | `validator --test producer-consumer-matches` |
+
+Violating any of these maps to a real business impact: duplicate records, data loss, out-of-order processing, or money created/destroyed.
+
+### How validation works
+
+The **state-tracker** Postgres `producer` table is the source of truth. Each row tracks a single generated record and the lifecycle columns `produced_timestamp`, `producer_type`, `consumed_timestamp`, `consumer_type`, and `consumed_count`. By inspecting these columns the validator decides whether the delivery and ordering guarantees held. DynamoDB holds the resulting account balances, which the money-conservation property checks.
+
+The validator ([`workload/validator/validator/src/main.rs`](workload/validator/validator/src/main.rs)) is a small Rust CLI with one subcommand per property:
+
+* `--test exactly-once-guarantee` — asserts (`always`) that **no** record produced by an `exactly_once` producer has `consumed_count > 1`.
+* `--test consumption-order` — asserts (`always`) that consumed record IDs form a contiguous, monotonically increasing sequence (consumption order == generation order).
+* `--test producer-consumer-matches` — for 30s, while production is stopped and only consumption runs, asserts (`always`) that every produced record is eventually consumed.
+
+### Sanity-checking test templates locally
+
+The [`workload/validator/test-composer`](workload/validator/test-composer) scripts are what Antithesis runs to drive load and validate the system. Because every service is reachable on the `kafka-net` docker network, you can run these by hand against a locally running stack (`make run`) before launching a full test:
+
+```bash
+docker compose exec validator /validator/target/debug/validator --test exactly-once-guarantee
+docker compose exec validator bash test-composer/parallel_driver_produce_atleast_once_single.sh
+```
 
 ## Components
 
 ### data generator
 
-The data generator is a simple http service that can be reached at http://[data_generator]:5000
+[`data-generator/base.py`](data-generator/base.py) is a Flask HTTP service reachable at `http://data-generator:5000`. It uses [Faker](https://faker.readthedocs.io/) with [custom providers](data-generator/custom_providers.py) that source their randomness from the Antithesis SDK, so the generated data is part of the explorable test space.
 
-It has the following endpoints
+Endpoints:
 
 ```
-http://[data_generator]:5000:/batch/<num_records>
-http://[data_generator]:5000:/batch_sequential/<num_records>
-http://[data_generator]:5000:/single
+POST http://data-generator:5000/single
+POST http://data-generator:5000/batch/<num_records>
+POST http://data-generator:5000/batch_sequential/<num_records>
 ```
 
-The main difference is that batch_sequential will generate a batch of data with a serial ID. The single batch is limited at 1000 records for now.
+The data type is selected with a `data_type` form field (`_bank_account`, `_banktest_fund_account`, `_banktest_transaction`, `_contact`). `batch_sequential` adds a `serial_id` field, and batches are capped at 1000 records. The `_contact` provider deliberately injects malformed data (bad emails, blank fields) a small percentage of the time. See [`data-generator/README.md`](data-generator/README.md) for full details.
 
 ### data generator client (pgsql)
 
-The data generator client continuously requests batches of data from the data generator and save them in the state tracker to be used as the master source of truth.
+[`data-generator/pgsql_client.py`](data-generator/pgsql_client.py) continuously requests batches from the data generator and saves them into the state tracker. Its [entrypoint](data-generator/pgsql_ep.sh) waits for the data generator and Postgres, creates the `producer` schema, then loops fetching and inserting. For the bank-transaction workload it first seeds a pool of funded accounts, then alternates between generating transactions against them and adding more accounts. Configured via environment variables (`DATA_TYPE`, `BATCH_SAVE_SIZE`, `BANK_TEST_NO_ACCOUNTS`, Postgres connection settings).
 
 ### producer
 
+[`workload/producer/producer/src/main.rs`](workload/producer/producer/src/main.rs) is an `axum` HTTP service with one nested route per delivery mode:
+
+```
+POST producer:3000/exactly_once_single/<topic>/<num_records>
+POST producer:3000/exactly_once_batch/<topic>/<num_records>
+POST producer:3000/atleast_once_single/<topic>/<num_records>
+POST producer:3000/atleast_once_batch/<topic>/<num_records>
+```
+
+On each call it reads up to `<num_records>` rows from the state-tracker that have no `produced_timestamp`, produces them to the given Kafka `<topic>`, and writes back `produced_timestamp` and `producer_type`. The `exactly_once` modes use Kafka transactions (`enable.idempotence=true`, `transactional.id`, `acks=all`) and commit each message transactionally; the `batch` modes add `linger.ms` / `batch.size` / `compression` tuning.
+
 ### passthrough consumer
+
+[`workload/consumer/consumer/src/main.rs`](workload/consumer/consumer/src/main.rs) is an `axum` HTTP service with one nested route per consumer mode:
+
+```
+POST consumer:3000/exactly_once_pass_through_consumer/<topic>/<num_records>
+POST consumer:3000/atleast_once_pass_through_consumer/<topic>/<num_records>
+```
+
+It consumes `<num_records>` messages from `<topic>`, records `consumed_timestamp` / `consumer_type` and increments `consumed_count` in the state-tracker, then **applies the message as a bank transaction to DynamoDB** (funding an account or transferring between two accounts). The `exactly_once` consumer uses `isolation.level=read_committed` with manual offset commits; the `atleast_once` consumer uses auto-commit.
 
 ### state tracker
 
-The state tracker is a Postgres database used to track the status of the data being produced and consumed. When the producer/consumer successfully complete an operation, it is recorded in the state tracker `producer` table. 
+A Postgres database that tracks the status of data being produced and consumed. When a producer/consumer completes an operation it is recorded in the `producer` table:
+
+| column                | meaning                                              |
+| --------------------- | ---------------------------------------------------- |
+| `id`                  | identity primary key (also the generation order)     |
+| `data`                | the JSON payload of the generated record             |
+| `topic`               | the data type / topic the record belongs to          |
+| `produced_timestamp`  | set when a producer successfully produces the record |
+| `producer_type`       | which producer mode produced it                      |
+| `consumed_timestamp`  | set when a consumer successfully consumes the record |
+| `consumer_type`       | which consumer mode consumed it                      |
+| `consumed_count`      | number of times the record has been consumed         |
 
 ### validator
 
-### Docker-compose configuration
+[`workload/validator/validator/src/main.rs`](workload/validator/validator/src/main.rs) is a Rust CLI that runs a single property check per invocation against the state-tracker (and, for the Python scripts, DynamoDB). See [Properties under test](#properties-under-test). In `docker-compose` the validator container's [entrypoint](workload/validator/entrypoint.sh) marks the Antithesis setup complete and idles; the actual checks are invoked by the test-composer scripts during a test.
 
-### (coming soon) DynamoDB
+### Kafka
 
-### (coming soon) S3/Minio
+A 3-broker Apache Kafka cluster in [KRaft mode](kafka/kafka.Dockerfile) (no ZooKeeper). `kafka-1` is the combined broker/controller; `kafka-2` and `kafka-3` are brokers. The image is built on a JDK base with debugging tools (`gdb`, `strace`) so brokers can be inspected during a test.
 
-## Todos
+### DynamoDB
 
-Mostly we will create issues in the repo
+A local [Amazon DynamoDB](https://hub.docker.com/r/amazon/dynamodb-local) instance (`ddb`) holds the `accounts` table keyed by `iban`. The consumer applies each consumed bank transaction as a DynamoDB transactional write (`transact_write_items`) — funding an account or transferring funds between two accounts atomically. The `ddd` helper container ([`dynamoDb/Dockerfile`](dynamoDb/Dockerfile)) bundles the AWS CLI for ad-hoc inspection during debugging (see [`dynamoDb/cool_commands`](dynamoDb/cool_commands)).
+
+### docker-compose configuration
+
+[`docker-compose.yaml`](docker-compose.yaml) wires every service onto a single bridge network (`kafka-net`, subnet `11.0.0.0/24`) with static IPs and health-check/`depends_on` ordering so the stack comes up in the right sequence. This same file is packaged into the `config_image` that Antithesis uses to stand up the system under test.
+
+## Contributing
+
+This is an evolving demo. The general workflow:
+
+1. Change a component under [`workload/`](workload), [`data-generator/`](data-generator), [`kafka/`](kafka), or [`dynamoDb/`](dynamoDb).
+2. Rebuild the affected image(s) with the relevant `make build-*` target and run the stack with `make run`.
+3. Add or update Antithesis assertions and/or test-composer scripts to cover the new behavior, and sanity-check them locally.
+4. Push images with `make push-*` and launch a test via the GitHub Action.
+
+Larger pieces of work are tracked as issues in the repo.
+
+## Roadmap
+
+* Probabilistic bad-data injection in the data generator (amount overflow, malformed records)
+* Easier / standardized build scripts
+* S3 / Minio object-storage workload
+* More exhaustive Kafka error classification in the producer/consumer (several errors are currently retried rather than classified)
