@@ -1,0 +1,39 @@
+name: Run with retries (testing only)
+
+on:
+  # push:
+  #   branches:
+  #     - test-429s
+  workflow_dispatch:
+    inputs:
+        duration:
+          type: string
+          required: true
+          default: '0.5'
+          description: Duration to the test run
+        emails:
+          type: string
+          required: true
+          description: Email recipients
+
+jobs:
+  run_with_retries:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        working-directory: ./scripts
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Kick off the test
+        env:
+          USERNAME: ${{ secrets.ROSE_CHEETAH_USERNAME }}
+          PASSWORD: ${{ secrets.ROSE_CHEETAH_PASSWORD }}
+          EMAIL_RECIPIENTS: ${{ github.event.inputs.emails }}
+          DESCRIPTION: "Run with retries for ${{ github.ref_name }} (commit ${{ github.sha }})"
+          DURATION: ${{ github.event.inputs.duration || '0.5' }}
+        run: ./run_with_retries.sh
