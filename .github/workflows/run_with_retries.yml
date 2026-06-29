@@ -1,9 +1,9 @@
 name: Run with retries (testing only)
 
 on:
-  # push:
-  #   branches:
-  #     - test-429s
+  push:
+    branches:
+      - test-429s
   workflow_dispatch:
     inputs:
         duration:
@@ -33,7 +33,7 @@ jobs:
         env:
           USERNAME: ${{ secrets.ROSE_CHEETAH_USERNAME }}
           PASSWORD: ${{ secrets.ROSE_CHEETAH_PASSWORD }}
-          EMAIL_RECIPIENTS: ${{ github.event.inputs.emails }}
+          EMAIL_RECIPIENTS: ${{ github.event.inputs.emails || 'zoe.park@antithesis.com' }}
           DESCRIPTION: "Run with retries for ${{ github.ref_name }} (commit ${{ github.sha }})"
           DURATION: ${{ github.event.inputs.duration || '0.5' }}
         run: ./run_with_retries.sh
