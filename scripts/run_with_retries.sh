@@ -13,6 +13,26 @@ RETRY_INTERVAL_MIN="${RETRY_INTERVAL_MIN:-5}"
 : "${DURATION:?DURATION is required}"
 : "${EMAIL_RECIPIENTS:?EMAIL_RECIPIENTS is required}"
 
+# Reject bad retry config before any arithmetic touches these vars. The regex
+# gate must come first: a value like RETRY_COUNT='x[$(cmd)]' would execute inside
+# (( )), so we never let a non-integer reach arithmetic.
+validate_retry_config() {
+    local re='^[0-9]+$'
+    [[ "$RETRY_COUNT"        =~ $re ]] || { echo "RETRY_COUNT must be a non-negative integer (got: '$RETRY_COUNT')." >&2; return 2; }
+    [[ "$RETRY_INTERVAL_MIN" =~ $re ]] || { echo "RETRY_INTERVAL_MIN must be a non-negative integer (got: '$RETRY_INTERVAL_MIN')." >&2; return 2; }
+    if (( RETRY_COUNT > 0 && RETRY_INTERVAL_MIN < 1 )); then
+        echo "RETRY_INTERVAL_MIN must be >= 1 when RETRY_COUNT > 0 (got: $RETRY_INTERVAL_MIN)." >&2; return 2
+    fi
+    local cap="${MAX_RETRY_WAIT_MIN:-120}"
+    [[ "$cap" =~ $re ]] || { echo "MAX_RETRY_WAIT_MIN must be a non-negative integer (got: '$cap')." >&2; return 2; }
+    local total=$(( RETRY_INTERVAL_MIN * RETRY_COUNT * (RETRY_COUNT + 1) / 2 ))
+    if (( total > cap )); then
+        echo "Projected total retry wait ${total} min exceeds cap ${cap} min (RETRY_COUNT=$RETRY_COUNT, RETRY_INTERVAL_MIN=$RETRY_INTERVAL_MIN). Lower them or raise MAX_RETRY_WAIT_MIN." >&2
+        return 2
+    fi
+}
+validate_retry_config
+
 # Linear backoff in seconds: interval*1, interval*2, ... interval*N
 RETRY_DELAYS=()
 for ((i = 1; i <= RETRY_COUNT; i++)); do
