@@ -1,9 +1,9 @@
 name: Run with retries (testing only)
 
 on:
-  push:
-    branches:
-      - test-429s
+  # push:
+  #   branches:
+  #     - test-429s
   workflow_dispatch:
     inputs:
         duration:
