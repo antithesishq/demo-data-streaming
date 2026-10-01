@@ -301,3 +301,4 @@ jobs:
           email_recipients: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
           additional_parameters: |-
             custom.duration=${{ github.event.inputs.duration || '0.5' }}
+            antithesis.performance_tier='turbo'
