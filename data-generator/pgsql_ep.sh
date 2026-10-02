@@ -5,7 +5,7 @@ set -e
 echo "Waiting for the data generator to be ready"
 dg_ready=0
 while [ $dg_ready -eq 0 ]; do
-    echo "Checking for data generator at $($DATA_GENERATOR_ENDPOINT) for a 200 response"
+    echo "Checking for data generator at $DATA_GENERATOR_ENDPOINT for a 200 response"
     dg_ready=`curl -X POST -I $DATA_GENERATOR_ENDPOINT/single | grep 200 | wc -l`
     sleep 2
 done

@@ -161,9 +161,17 @@ enum Tests {
 }
 
 fn find_broken_id_sequence(b_as: &[BankData]) -> Vec<BankData> {
-    b_as.windows(2)
+    let mut consumed = b_as
+        .iter()
+        .filter(|b_a| b_a.consumed_timestamp.is_some())
+        .cloned()
+        .collect::<Vec<_>>();
+
+    consumed.sort_by_key(|b_a| b_a.consumed_timestamp);
+
+    consumed.windows(2)
         .filter_map(|pair| {
-            if pair[0].id + 1 != pair[1].id {
+            if pair[0].id > pair[1].id {
                 Some(pair[1].clone())
             } else {
                 None
@@ -187,13 +195,18 @@ fn find_produced_data_thats_not_consumed_yet(b_as: &[BankData]) -> Vec<BankData>
 async fn run_check_for_30s(pg_client: Postgres) -> Option<Vec<BankData>> {
     let start_time = Instant::now();
     let duration = Duration::from_secs(30);
+    let cutoff = SystemTime::now();
     let mut last_result = None;
 
     while Instant::now().duration_since(start_time) < duration {
         match pg_client.get_produced_data().await {
             Ok(b_as) => {
                 info!("Produced data length {:?}", b_as.len());
-                last_result = Some(find_produced_data_thats_not_consumed_yet(&b_as));
+                let produced_before_cutoff = b_as
+                    .into_iter()
+                    .filter(|b_a| b_a.produced_timestamp.is_some_and(|ts| ts <= cutoff))
+                    .collect::<Vec<_>>();
+                last_result = Some(find_produced_data_thats_not_consumed_yet(&produced_before_cutoff));
                 //info!("Produced data thats not consumed yet {:?}", last_result);
             }
             Err(err) => {

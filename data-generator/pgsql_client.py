@@ -11,7 +11,7 @@ A client that constantly ask faker for data and import them into database table
 7. Build entrypoint to wait for postgres and data generator to be ready 
 '''
 
-import psycopg2, requests, os, argparse, json
+import psycopg2, requests, os, argparse, json, time
 
 class faker_pgsql():    
     def __init__(self, pg_host:str, pg_user:str, pg_pass:str, pg_db:str, data_generator_endpoint:str) -> None:
@@ -33,8 +33,15 @@ class faker_pgsql():
         return psycopg2.connect(host=self.pg_host,database=self.pg_db,user=self.pg_user, password=self.pg_pass)
 
     def fetch_and_save(self, num_to_get=100):
-        records = self.get_faker_data(num_to_get)
-        self.insert_records(records)
+        try:
+            records = self.get_faker_data(num_to_get)
+            if not records:
+                return
+            self.insert_records(records)
+        except requests.exceptions.RequestException as e:
+            print(f'Error fetching data from generator: {e}')
+        except (psycopg2.Error, json.JSONDecodeError, ValueError, TypeError) as e:
+            print(f'Error saving fetched data: {e}')
 
     def create_schema(self) -> None:
         '''
@@ -93,10 +100,19 @@ class faker_pgsql():
 
         request_url = f'{self.faker_endpoint}/batch/{num_to_get}'
 
-        response = requests.post(request_url, data=data)
+        response = None
+        for _ in range(5):
+            try:
+                response = requests.post(request_url, data=data, timeout=5)
+                if response.status_code == 200:
+                    break
+                print(f"Request to {request_url} resulted in status {response.status_code} and {response.text}")
+            except requests.exceptions.RequestException as e:
+                print(f"Request to {request_url} failed: {e}")
+            time.sleep(1)
 
-        if response.status_code != 200:
-            raise Exception(f"Request to {request_url} resulted in status {response.status_code} and {response.text}")
+        if response is None or response.status_code != 200:
+            raise requests.exceptions.RequestException(f"Unable to fetch data from {request_url}")
 
         # psycopg expects tuples for inserting
         data = response.json()
