@@ -159,7 +159,7 @@ jobs:
           tenant: demo
           # Live results need an API key (or OIDC); username/password would fall
           # back to the old fire-and-forget behaviour.
-          api_key: ${{ secrets.ANTITHESIS_API_KEY }}
+          api_key: ${{ secrets.DEMO_API_KEY }}
           username: ${{ secrets.ANTITHESIS_USER_NAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ github.token }}
