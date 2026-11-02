@@ -20,14 +20,9 @@ on:
 jobs:
   Demo:
     runs-on: ubuntu-latest
-    # Comment mode waits for the run (custom.duration is in hours) and needs to
-    # write the PR comment and the commit status with the workflow's own token.
-    timeout-minutes: 120
     permissions:
       contents: read
       id-token: write
-      pull-requests: write
-      statuses: write
 
     steps:
       - name: Checkout code
@@ -152,20 +147,13 @@ jobs:
           echo "- validator:${{ github.sha }}"
 
       - name: Trigger Test on Demo
-        # Trial of live PR comments; pinned to the feature branch, not a release.
-        uses: antithesishq/antithesis-trigger-action@live-pr-comments
+        uses: antithesishq/antithesis-trigger-action@main
         with:
           notebook_name: async_platform
           tenant: demo
-          # Live results need an API key (or OIDC); username/password would fall
-          # back to the old fire-and-forget behaviour.
-          api_key: ${{ secrets.DEMO_API_KEY }}
           username: ${{ secrets.ANTITHESIS_USER_NAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
-          github_token: ${{ github.token }}
-          mode: comment
-          test_name: async_platform
-          wait_timeout: 1h45m
+          github_token: ${{ secrets.GH_PAT }}
           config_image: demo-data-streaming-config:latest
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
@@ -174,9 +162,14 @@ jobs:
 
   Rose-Cheetah:
     runs-on: ubuntu-latest
+    # Comment mode waits for the run (custom.duration is in hours) and needs to
+    # write the PR comment and the commit status with the workflow's own token.
+    timeout-minutes: 120
     permissions:
       contents: read
       id-token: write
+      pull-requests: write
+      statuses: write
 
     steps:
       - name: Checkout code
@@ -301,13 +294,20 @@ jobs:
           echo "- validator:${{ github.sha }}"
 
       - name: Trigger Test on Rose Cheetah
-        uses: antithesishq/antithesis-trigger-action@main
+        # Trial of live PR comments; pinned to the feature branch, not a release.
+        uses: antithesishq/antithesis-trigger-action@live-pr-comments
         with:
           notebook_name: async_platform
           tenant: rose-cheetah
+          # Live results need an API key (or OIDC); username/password would fall
+          # back to the old fire-and-forget behaviour.
+          api_key: ${{ secrets.ROSE_API_KEY }}
           username: ${{ secrets.ROSE_CHEETAH_USERNAME }}
           password: ${{ secrets.ROSE_CHEETAH_PASSWORD }}
-          github_token: ${{ secrets.GH_PAT }}
+          github_token: ${{ github.token }}
+          mode: comment
+          test_name: async_platform
+          wait_timeout: 1h45m
           config_image: demo-data-streaming-config:latest
           description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
           email_recipients: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
