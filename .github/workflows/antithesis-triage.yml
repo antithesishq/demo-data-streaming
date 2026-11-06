@@ -1,0 +1,50 @@
+# Copy to .github/workflows/antithesis-triage.yml in the repository whose
+# code Antithesis tests.
+name: Antithesis triage
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily, after nightly Antithesis runs finish
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Which runs to triage (natural language)
+        required: false
+        default: Completed and incomplete runs from the last 7 days for this repository.
+      run-ids:
+        description: Explicit run IDs (overrides the description)
+        required: false
+        default: ''
+
+# Read-only. The action never writes to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: antithesis-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the agent checks out the commit each run tested
+          persist-credentials: false # keep the GITHUB_TOKEN out of .git/config
+
+      - uses: antithesishq/antithesis-triage-action@main
+        with:
+          runs: ${{ inputs.runs || 'Completed and incomplete runs from the last 7 days for this repository.' }}
+          run-ids: ${{ inputs.run-ids }}
+          grouping: Compare runs with the same antithesis.source and antithesis.test_name. Treat PR runs separately.
+          # known-issues: |
+          #   "Some property name": tracked in #123
+          #   Any SIGSEGV during shutdown: known, low priority
+          # ignore: |
+          #   "Some noisy harness property"
+        env:
+          ANTITHESIS_API_KEY: ${{ secrets.ANTITHESIS_API_KEY }}
+          ANTITHESIS_TENANT: ${{ vars.ANTITHESIS_TENANT }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
