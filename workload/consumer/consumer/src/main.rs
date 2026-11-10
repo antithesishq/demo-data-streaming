@@ -9,6 +9,7 @@ use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use rdkafka::message::{OwnedHeaders, Header, Headers};
 use rdkafka::{ClientContext};
 use rdkafka::consumer::{Consumer, StreamConsumer, Rebalance, BaseConsumer, ConsumerContext, CommitMode};
+use rdkafka::producer::{BaseProducer, BaseRecord, Producer};
 use rdkafka::util::get_rdkafka_version;
 use rdkafka::TopicPartitionList;
 use rdkafka::error::KafkaResult;
@@ -567,6 +568,19 @@ async fn add_context_middleware(
     }
 }
 
+const MAX_CONSUME_RETRIES: u32 = 3;
+
+fn send_to_dlq(brokers: &[&str], topic: &str, error: &str) {
+    let dlq_topic = format!("{}-dlq", topic);
+    let producer: BaseProducer = ClientConfig::new()
+        .set("bootstrap.servers", &brokers.join(","))
+        .create()
+        .expect("DLQ producer creation failed");
+    let _ = producer.send(BaseRecord::<str, str>::to(&dlq_topic).payload(error));
+    let _ = producer.flush(Duration::from_secs(5));
+    eprintln!("dlq: sent failed message to {}", dlq_topic);
+}
+
 async fn handle(
     Path((topic, num_records)): Path<(String, i64)>,
     State(state): State<Arc<AppState>>,
@@ -610,21 +624,27 @@ async fn handle(
         if let Some(ddb_client) = &*ddb_client_guard {
             consumer.safe_subscribe(&topic);
             let mut count = 0;
+            let mut consecutive_errors: u32 = 0;
             while count < num_records {
-                let b_d_data = consumer.safe_get_consumed().await;  
+                let b_d_data = consumer.safe_get_consumed().await;
                 match b_d_data {
                     Ok(b_d_data) => {
-                        //b_d_data= temp(b_d_data);
+                        consecutive_errors = 0;
                         pg_client.safe_write_consumed(&b_d_data, &kafka_mode).await;
                         ddb_client.safe_transaction(b_d_data.0).await;
-                        //db_client.safe_transaction(b_d_data).await;
                     }
                     Err(e) => {
-                        eprintln!("kafka: could not consume data error: {:?}, retrying ...", e);
-                        sleep(Duration::from_secs(1)); // Avoid tight retry loop
+                        consecutive_errors += 1;
+                        if consecutive_errors >= MAX_CONSUME_RETRIES {
+                            send_to_dlq(&brokers, &topic, &format!("{:?}", e));
+                            consecutive_errors = 0;
+                        } else {
+                            eprintln!("kafka: could not consume data error: {:?}, retrying ({}/{}) ...", e, consecutive_errors, MAX_CONSUME_RETRIES);
+                            sleep(Duration::from_secs(1));
+                        }
                     }
                 }
-                count += 1; 
+                count += 1;
             }
         }
         
