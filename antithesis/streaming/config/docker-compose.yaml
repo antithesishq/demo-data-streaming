@@ -29,6 +29,9 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      # A restarted node waits for the quorum instead of exiting after 60 s
+      # (f8a1803).
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.11
@@ -50,6 +53,9 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      # A restarted node waits for the quorum instead of exiting after 60 s
+      # (f8a1803).
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.12
@@ -71,6 +77,9 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      # A restarted node waits for the quorum instead of exiting after 60 s
+      # (f8a1803).
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.13
