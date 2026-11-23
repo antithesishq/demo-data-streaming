@@ -15,7 +15,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-    restart: on-failure
     networks:
       kafka-net:
         ipv4_address: 11.0.0.11
@@ -39,7 +38,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-    restart: on-failure
     networks:
       kafka-net:
         ipv4_address: 11.0.0.12
@@ -63,7 +61,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-    restart: on-failure
     networks:
       kafka-net:
         ipv4_address: 11.0.0.13
