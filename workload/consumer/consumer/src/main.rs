@@ -285,7 +285,8 @@ impl Postgres {
             SET 
                 consumed_timestamp = $1,
                 consumer_type = $2,
-                consumed_count = consumed_count + 1
+                consumed_count = consumed_count + 1,
+                consumed_seq = COALESCE(consumed_seq, nextval('event_seq'))
             WHERE id = $3;
         ";
         loop {

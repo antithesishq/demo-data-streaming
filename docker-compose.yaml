@@ -3,14 +3,19 @@ services:
     image: kafka:latest
     container_name: kafka-1
     hostname: kafka-1
+    # Three combined broker+controller nodes, so the KRaft controller quorum
+    # survives losing any one node, and a broker that stops can rejoin the
+    # remaining quorum. A single controller is not a production deployment.
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENERS_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
       KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    restart: on-failure
     networks:
       kafka-net:
         ipv4_address: 11.0.0.11
@@ -22,36 +27,48 @@ services:
     image: kafka:latest
     container_name: kafka-2
     hostname: kafka-2
+    # Three combined broker+controller nodes, so the KRaft controller quorum
+    # survives losing any one node, and a broker that stops can rejoin the
+    # remaining quorum. A single controller is not a production deployment.
     environment:
       KAFKA_BROKER_ID: 2
-      KAFKA_PROCESS_ROLES: "broker"
-      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092,CONTROLLER://kafka-2:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    restart: on-failure
     networks:
       kafka-net:
         ipv4_address: 11.0.0.12
     healthcheck:
-      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-1:9092 || exit 1
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-2:9092 || exit 1
       interval: 5s
       retries: 60
   kafka-3:
     image: kafka:latest
     container_name: kafka-3
     hostname: kafka-3
+    # Three combined broker+controller nodes, so the KRaft controller quorum
+    # survives losing any one node, and a broker that stops can rejoin the
+    # remaining quorum. A single controller is not a production deployment.
     environment:
       KAFKA_BROKER_ID: 3
-      KAFKA_PROCESS_ROLES: "broker"
-      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092,CONTROLLER://kafka-3:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    restart: on-failure
     networks:
       kafka-net:
         ipv4_address: 11.0.0.13
     healthcheck:
-      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-1:9092 || exit 1
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-3:9092 || exit 1
       interval: 5s
       retries: 60
   data_generator:
@@ -157,6 +174,9 @@ services:
     container_name: ddb
     hostname: ddb
     image: docker.io/amazon/dynamodb-local:2.6.1
+    # Store tables on disk instead of the image's default -inMemory, so a
+    # killed or stopped ddb comes back with its data, as a real DynamoDB would.
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal"]
     ports:
       - "8000:8000"
     networks:

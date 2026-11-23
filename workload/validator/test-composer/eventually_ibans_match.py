@@ -1,26 +1,55 @@
 #!/usr/bin/env -S python3 -u
+# Invariant: every account in DynamoDB was created by a funding message that
+# the consumer consumed. An account with no consumed funding message is a
+# phantom account.
+#
+# This runs once faults stop, but DynamoDB may still be restarting, so retry
+# the scan for a while before checking. If it never comes back, that's a real
+# failure and the command exits non-zero.
+
+import json
+import os
+import time
 
 import boto3
-import os
-import json
 import psycopg2
+from botocore.exceptions import BotoCoreError, ClientError
 
 from antithesis.assertions import always
 
-endpoint_url=f"http://{os.getenv('DYNAMO_ENDPOINT', 'ddb:8000')}"
-client = boto3.client('dynamodb', endpoint_url=endpoint_url, region_name='us-east-1')
+RETRY_FOR_SECONDS = 120
+
+endpoint_url = f"http://{os.getenv('DYNAMO_ENDPOINT', 'ddb:8000')}"
 dynamodb = boto3.resource('dynamodb', endpoint_url=endpoint_url, region_name='us-east-1')
 table = dynamodb.Table('accounts')
 
-response = table.scan()
-accounts = response['Items']
-ddb_ibans = [account['iban'] for account in accounts]
+
+def scan_all_ibans():
+    ibans = []
+    kwargs = {'ConsistentRead': True}
+    while True:
+        response = table.scan(**kwargs)
+        ibans.extend(account['iban'] for account in response['Items'])
+        if 'LastEvaluatedKey' not in response:
+            return ibans
+        kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+
+
+deadline = time.monotonic() + RETRY_FOR_SECONDS
+while True:
+    try:
+        ddb_ibans = scan_all_ibans()
+        break
+    except (BotoCoreError, ClientError) as e:
+        if time.monotonic() >= deadline:
+            raise
+        print(f"DynamoDB not available yet, retrying: {e}")
+        time.sleep(2)
 
 conn = psycopg2.connect(host='state-tracker', user='u', password='p', database='d')
 cursor = conn.cursor()
-
 cursor.execute('''
-    SELECT 
+    SELECT
         data::jsonb->>'iban'
     FROM
         producer
@@ -28,9 +57,8 @@ cursor.execute('''
         consumed_timestamp IS NOT NULL
         AND topic = '_banktest_fund_account'
 ''')
-
 dg_ibans = [account[0] for account in cursor.fetchall()]
 
 diff = set(ddb_ibans) - set(dg_ibans)
 
-always(len(diff) == 0, "produced ibans match ibans in dynamo", { "diff": json.dumps(diff, default=list) })
+always(len(diff) == 0, "produced ibans match ibans in dynamo", {"diff": json.dumps(sorted(diff))})

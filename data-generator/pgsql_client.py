@@ -50,8 +50,14 @@ class faker_pgsql():
                 producer_type VARCHAR(255) DEFAULT NULL,
                 consumed_timestamp TIMESTAMP DEFAULT NULL,
                 consumer_type VARCHAR(255) DEFAULT NULL,
-                consumed_count INT DEFAULT 0
+                consumed_count INT DEFAULT 0,
+                produced_seq BIGINT DEFAULT NULL,
+                consumed_seq BIGINT DEFAULT NULL
             )''')
+            # One sequence for produce and consume events, so the validator can
+            # compare the order of events without relying on container clocks,
+            # which clock faults skew.
+            cursor.execute('CREATE SEQUENCE event_seq')
             self.pg_conn.commit()
                 # print(cursor.statusmessage)
         except psycopg2.Error as e:
