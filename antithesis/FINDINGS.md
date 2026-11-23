@@ -3,6 +3,15 @@
 SUT bugs the new workload surfaces. The failing guarantee properties are the
 demo's intended bugs; this file records the evidence for each.
 
+**Latest run:** 8ff1d6f953a5adee728d54ae398cfbea-67-26 (24 compute hours,
+[report](https://public.antithesis.com/report/bAgXAqQuOrTfdtBzkrXPdtYx/a3U6991sq_6EoO0SHEXengQGhlACRE5MaQIEOu_yUQ8.html)).
+Failing: `Final total equals expected total` and `produced ibans match ibans
+in dynamo` (finding 2), `Produced data matches consumed data after 30s ...`
+(finding 6), and four consumer `Sometimes` assertions written as
+`assert_sometimes!(false, ...)`, which can never pass. Passing: exactly-once
+ordering and no-duplicates, recovery once faults stop, no unexpected
+container exits, instrumentation of every component.
+
 ## 1. Exactly-once single and batch producers fence each other; the producer hangs forever
 
 - **Seen:** locally, without faults (`antithesis/streaming/runs/local-*`).
@@ -96,6 +105,9 @@ demo's intended bugs; this file records the evidence for each.
   restarted node never registered within 60 s. Raft behaved correctly; Kafka
   exits by design. Options: raise `initial.broker.registration.timeout.ms`,
   or an entrypoint that restarts Kafka on exit.
+- **Resolution:** `antithesis-instrumentation` f8a1803 sets
+  `KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000`; with it, run
+  8ff1d6f9... had no unexpected container exits.
 
 ## 6. A restarted consumer hangs forever creating a DynamoDB table that exists
 
