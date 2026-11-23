@@ -1,0 +1,13 @@
+# Local loop only (scripts/local-run.sh); never part of the config image.
+services:
+  driver:
+    environment:
+      ANTITHESIS_SDK_LOCAL_OUTPUT: /tmp/sdk.jsonl
+      EVENTUALLY_DISABLED: ${EVENTUALLY_DISABLED:-}
+      EVENTUALLY_AFTER_SECS: ${EVENTUALLY_AFTER_SECS:-}
+  producer:
+    environment:
+      ANTITHESIS_SDK_LOCAL_OUTPUT: /tmp/sdk.jsonl
+  consumer:
+    environment:
+      ANTITHESIS_SDK_LOCAL_OUTPUT: /tmp/sdk.jsonl

@@ -1,0 +1,24 @@
+# Local loop only: LLVM coverage builds of the producer and consumer.
+services:
+  producer:
+    image: dds-producer:coverage
+    build:
+      context: ../../../workload/producer
+      dockerfile: ../../antithesis/streaming/coverage/rust-service.Dockerfile
+      args: { SVC: producer }
+    environment:
+      LLVM_PROFILE_FILE: /coverage/producer/%c%m.profraw
+      ANTITHESIS_SDK_LOCAL_OUTPUT: /coverage/producer/sdk.jsonl
+    volumes: [coverage:/coverage]
+  consumer:
+    image: dds-consumer:coverage
+    build:
+      context: ../../../workload/consumer
+      dockerfile: ../../antithesis/streaming/coverage/rust-service.Dockerfile
+      args: { SVC: consumer }
+    environment:
+      LLVM_PROFILE_FILE: /coverage/consumer/%c%m.profraw
+      ANTITHESIS_SDK_LOCAL_OUTPUT: /coverage/consumer/sdk.jsonl
+    volumes: [coverage:/coverage]
+volumes:
+  coverage:
