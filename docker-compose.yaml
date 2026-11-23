@@ -107,7 +107,7 @@ services:
     container_name: producer
     environment:
       RUST_LOG: debug 
-    entrypoint: /producer/target/debug/producer
+    entrypoint: /producer/target/x86_64-unknown-linux-gnu/release/producer
     cap_add:
       - SYS_PTRACE
     networks:
@@ -126,7 +126,7 @@ services:
     container_name: consumer
     environment:
       RUST_LOG: debug 
-    entrypoint: /consumer/target/debug/consumer
+    entrypoint: /consumer/target/x86_64-unknown-linux-gnu/release/consumer
     networks:
       kafka-net:
         ipv4_address: 11.0.0.18

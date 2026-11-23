@@ -1,3 +1,4 @@
+use antithesis_instrumentation as _;
 use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 
 use std::fmt::Write;
