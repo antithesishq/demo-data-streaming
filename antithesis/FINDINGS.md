@@ -86,8 +86,16 @@ demo's intended bugs; this file records the evidence for each.
   supervisor to restart the broker. Deployment fixes, if wanted: three
   controller voters, a longer registration timeout, or an entrypoint that
   restarts Kafka on exit (not a Compose `restart:` policy).
-- **Resolution:** `antithesis-instrumentation` (7f51398) moved to three
-  broker+controller nodes; the workload's compose follows it.
+- **Resolution, partial:** `antithesis-instrumentation` (7f51398) moved to
+  three broker+controller nodes; the workload's compose follows it. It still
+  happens: run 8a4052b39598dbca43422d6b3ab75dcd-67-26 had kafka-3 (vtime
+  231.5) and kafka-1 (257.8) exit 1 the same way. Each restarted while another
+  voter was down and partitions or clogs held latency above KRaft's 2 s fetch
+  timeout; leaders were elected and resigned within 3-5 s (`Did not receive
+  fetch request from the majority of the voters within 3000ms`), so the
+  restarted node never registered within 60 s. Raft behaved correctly; Kafka
+  exits by design. Options: raise `initial.broker.registration.timeout.ms`,
+  or an entrypoint that restarts Kafka on exit.
 
 ## 6. A restarted consumer hangs forever creating a DynamoDB table that exists
 
