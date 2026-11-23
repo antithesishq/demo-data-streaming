@@ -15,6 +15,12 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      # A restarting broker gives up and exits if it can't register with the
+      # controller quorum within this time (default 60s), on the assumption
+      # that a supervisor restarts it. Here Antithesis restarts only the
+      # containers it faults, and a compose restart policy would cancel its
+      # faults, so let the broker keep trying through long network faults.
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.11
@@ -38,6 +44,12 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      # A restarting broker gives up and exits if it can't register with the
+      # controller quorum within this time (default 60s), on the assumption
+      # that a supervisor restarts it. Here Antithesis restarts only the
+      # containers it faults, and a compose restart policy would cancel its
+      # faults, so let the broker keep trying through long network faults.
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.12
@@ -61,6 +73,12 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      # A restarting broker gives up and exits if it can't register with the
+      # controller quorum within this time (default 60s), on the assumption
+      # that a supervisor restarts it. Here Antithesis restarts only the
+      # containers it faults, and a compose restart policy would cancel its
+      # faults, so let the broker keep trying through long network faults.
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.13
