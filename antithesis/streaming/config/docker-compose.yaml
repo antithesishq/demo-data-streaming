@@ -7,12 +7,11 @@
 # Launch with: --fault-tolerance high_availability --fault-exclusions '^(driver|state-tracker)$'
 # (antithesis/streaming/scripts/launch.sh).
 
-x-kafka-health: &kafka-health
-  test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-1:9092 || exit 1
-  interval: 5s
-  retries: 60
-
 services:
+  # Three combined broker+controller nodes, as on antithesis-instrumentation
+  # (7f51398), so the KRaft quorum survives losing any one node. No `restart:`
+  # policy, unlike the root compose file: Antithesis restarts killed and
+  # stopped containers itself, and a policy would cancel those faults early.
   kafka-1:
     image: dds-kafka:latest
     platform: linux/amd64
@@ -25,14 +24,18 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENERS_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
       KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
     networks:
       kafka-net:
         ipv4_address: 11.0.0.11
-    healthcheck: *kafka-health
+    healthcheck:
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-1:9092 || exit 1
+      interval: 5s
+      retries: 60
   kafka-2:
     image: dds-kafka:latest
     platform: linux/amd64
@@ -40,15 +43,20 @@ services:
     hostname: kafka-2
     environment:
       KAFKA_BROKER_ID: 2
-      KAFKA_PROCESS_ROLES: "broker"
-      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092,CONTROLLER://kafka-2:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
     networks:
       kafka-net:
         ipv4_address: 11.0.0.12
-    healthcheck: *kafka-health
+    healthcheck:
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-2:9092 || exit 1
+      interval: 5s
+      retries: 60
   kafka-3:
     image: dds-kafka:latest
     platform: linux/amd64
@@ -56,15 +64,20 @@ services:
     hostname: kafka-3
     environment:
       KAFKA_BROKER_ID: 3
-      KAFKA_PROCESS_ROLES: "broker"
-      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092,CONTROLLER://kafka-3:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
     networks:
       kafka-net:
         ipv4_address: 11.0.0.13
-    healthcheck: *kafka-health
+    healthcheck:
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-3:9092 || exit 1
+      interval: 5s
+      retries: 60
   state-tracker:
     image: docker.io/library/postgres:12.22
     platform: linux/amd64
@@ -84,6 +97,9 @@ services:
   ddb:
     image: docker.io/amazon/dynamodb-local:2.6.1
     platform: linux/amd64
+    # Tables on disk instead of the default -inMemory, so a killed ddb keeps
+    # its data, as a real DynamoDB would (e930628).
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal"]
     container_name: ddb
     hostname: ddb
     networks:

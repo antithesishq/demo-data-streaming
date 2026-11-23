@@ -35,7 +35,7 @@ demo's intended bugs; this file records the evidence for each.
   dropped. The account exists without its 1000. Fund and transfer records go
   to different topics and modes, so nothing orders them.
 
-## 3. Consumption skips records across the two topics (property under review)
+## 3. Consumption skips records across the two topics (property replaced)
 
 - **Seen:** locally, and in run 517ae013... at vtime 23.70 (consumed {1, 81},
   ids 2-80 on `bankAO` not yet consumed). All were consumed by vtime ~44:
@@ -50,6 +50,10 @@ demo's intended bugs; this file records the evidence for each.
 - **Cause:** the producer reads unproduced records in id order whatever the
   topic, so consecutive ids land on `bankEO` and `bankAO`, whose consumers run
   independently. One topic's consumer lagging leaves gaps in the consumed ids.
+- **Resolution:** `antithesis-instrumentation` (e930628) reached the same
+  conclusion and replaced the property with `Exactly-once topic is consumed
+  in the order it was produced`, using produce/consume sequence numbers. The
+  driver now checks that property.
 
 ## 4. A consume request for more records than the topic holds blocks the consumer forever
 
@@ -81,5 +85,25 @@ demo's intended bugs; this file records the evidence for each.
   controller voter (`KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093`) and no
   supervisor to restart the broker. Deployment fixes, if wanted: three
   controller voters, a longer registration timeout, or an entrypoint that
-  restarts Kafka on exit (not a Compose `restart:` policy). Kept as is: it's the
-  demo's SUT configuration.
+  restarts Kafka on exit (not a Compose `restart:` policy).
+- **Resolution:** `antithesis-instrumentation` (7f51398) moved to three
+  broker+controller nodes; the workload's compose follows it.
+
+## 6. A restarted consumer hangs forever creating a DynamoDB table that exists
+
+- **Seen:** run 5493a54273c86fc0a40d7033d4696fca-67-26, `Produced data matches
+  consumed data after 30s of not producing and only consuming` (vtime 257.83,
+  167 records produced and never consumed). Kafka held all of them
+  (`bankAO:0:97`, `bankEO:0:140`) and no consumer group had committed an
+  offset: nothing was lost; nothing was consumed.
+- **Timeline:** the consumer restarted after faults (`Starting Consumer` at
+  219.42). Its first request, at 223.34, called `safe_create_table`, which
+  logged `dynamodb: error: failed to create table ServiceError(...
+  ResourceInUseException ... "Cannot create preexisting table"), retrying ...`
+  every second until the check failed, holding the service-wide lock.
+- **Cause:** `workload/consumer/consumer/src/main.rs` `safe_create_table`
+  treats "already exists" as success only if `e.to_string()` contains
+  `ResourceInUseException`, but an AWS `SdkError`'s Display text never names
+  the variant, so it retries forever (with a blocking `std::thread::sleep`
+  inside async code). Fix: `e.into_service_error().is_resource_in_use_exception()`.
+  Reached once DynamoDB keeps its tables across restarts (e930628).
