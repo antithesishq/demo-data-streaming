@@ -604,8 +604,13 @@ impl Shared {
                     let Ok(left) = self.unconsumed(&mode) else { continue };
                     remaining += left;
                     let ask = (left - self.consume_requested[mode.idx].load(Ordering::SeqCst)).min(100);
-                    if ask > 0 {
-                        let _ = self.consume(mode, ask);
+                    if ask > 0 && self.consume(mode, ask).is_none()
+                        && self.consume_in_flight.load(Ordering::SeqCst) >= MAX_IN_FLIGHT
+                    {
+                        log(format!(
+                            "eventually: drain of {} waits: {MAX_IN_FLIGHT} consume calls still outstanding",
+                            mode.topic
+                        ));
                     }
                 }
                 if remaining == 0 {
@@ -732,9 +737,9 @@ impl Driver {
     fn consume(&self, tc: TestCase) {
         let mode = tc.draw(gs::sampled_from(CONSUME_MODES.to_vec()));
         // A consume call blocks until it has read as many records as it asked
-        // for, so asking for more than the topic holds parks the consumer
-        // until more arrive. Ask within what's there, and over-ask rarely.
-        let overask = tc.draw(gs::weighted_booleans(0.02));
+        // for, holding the consumer's only lock, so asking for more than the
+        // topic holds parks the consumer for good (FINDINGS.md). Ask only for
+        // records the state-tracker shows as produced and not yet consumed.
         if self.s.quiescing.load(Ordering::SeqCst) {
             return;
         }
@@ -743,13 +748,10 @@ impl Driver {
             Err(e) => return log(format!("consume: counting unconsumed records: {e}")),
         };
         let avail = left - self.s.consume_requested[mode.idx].load(Ordering::SeqCst);
-        let n = if overask {
-            tc.draw(gs::integers::<i64>().min_value(avail.max(0) + 1).max_value(avail.max(0) + 20))
-        } else if avail > 0 {
-            tc.draw(gs::integers::<i64>().min_value(1).max_value(avail.min(100)))
-        } else {
+        if avail <= 0 {
             return std::thread::sleep(IDLE);
-        };
+        }
+        let n = tc.draw(gs::integers::<i64>().min_value(1).max_value(avail.min(100)));
         if let Some(o) = self.s.consume(mode, n) {
             tc.note(&format!("consume {} {n}: {o:?}", mode.route));
         }

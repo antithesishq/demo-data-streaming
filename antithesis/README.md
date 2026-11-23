@@ -34,8 +34,8 @@ Antithesis controls it. Its rules, run concurrently on several workers:
   `atleast_once_{single,batch}` to `bankAO`), 1-100 records.
 - **consume:** `POST consumer:3000/<mode>/<topic>/<n>`, exactly-once from
   `bankEO` or at-least-once from `bankAO`. A consume call blocks until it has
-  read `n` records, so it asks for at most what the state-tracker shows as
-  produced and unconsumed, and over-asks rarely (2%).
+  read `n` records (holding the consumer's only lock), so it asks only for
+  what the state-tracker shows as produced and not yet consumed.
 - **checks:** the guarantees below, against the state-tracker and DynamoDB.
 - **eventually** (rare): stops faults, waits for every service, stops
   producing, gives the consumer 30 s to drain both topics, runs every check in

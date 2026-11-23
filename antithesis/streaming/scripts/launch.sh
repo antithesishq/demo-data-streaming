@@ -5,9 +5,15 @@
 set -euo pipefail
 hours=${1:?usage: launch.sh <max-compute-hours> [description]}
 cd "$(dirname "$0")/../config"
+# This branch builds on antithesis-instrumentation; take its changes first.
+if [ -n "$(git log --oneline HEAD..antithesis-instrumentation 2>/dev/null)" ]; then
+  echo "antithesis-instrumentation has commits not merged here; merge them first" >&2
+  exit 1
+fi
 rev=$(git rev-parse --short HEAD)
 desc=${2:-"plugin workload @ $rev, ${hours}h"}
 docker compose -p dds build
+docker compose -p dds down -v >/dev/null 2>&1 || true  # frees the fixed subnet for validate
 snouty validate .
 snouty launch \
   --launcher basic_test \
