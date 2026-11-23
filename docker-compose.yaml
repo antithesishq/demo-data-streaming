@@ -157,6 +157,9 @@ services:
     container_name: ddb
     hostname: ddb
     image: docker.io/amazon/dynamodb-local:2.6.1
+    # Store tables on disk instead of the image's default -inMemory, so a
+    # killed or stopped ddb comes back with its data, as a real DynamoDB would.
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal"]
     ports:
       - "8000:8000"
     networks:

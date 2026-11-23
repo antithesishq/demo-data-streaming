@@ -396,7 +396,8 @@ impl Postgres {
             UPDATE producer
             SET 
                 produced_timestamp = $1,
-                producer_type = $2
+                producer_type = $2,
+                produced_seq = nextval('event_seq')
             WHERE id = $3;
         ";
         loop {
