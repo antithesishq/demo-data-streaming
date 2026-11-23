@@ -1,22 +1,18 @@
-# Antithesis workloads
+# Hegel workload
 
-## `streaming/`: the bank pipeline
-
-Tests the data-streaming demo (Kafka, the producer and consumer services,
-DynamoDB-local and the Postgres state-tracker) under the Antithesis
-`basic_test` launcher with the faults the original harness used. It replaces
-the original harness (data generator, data generator client, validator and
-`test-composer` scripts, run by the custom `async_platform` launcher). The SUT
-and its images are unchanged; they are built with Antithesis coverage
-instrumentation (the `antithesis-instrumentation` branch).
+A second Antithesis workload for the data-streaming demo, written with the
+[Antithesis plugin](https://github.com/antithesishq/antithesis-plugin). It
+tests the same system (Kafka, the producer and consumer services,
+DynamoDB-local and the Postgres state-tracker) for the same properties as the
+test-composer workload in the repository root, but with one
+[hegel](https://hegel.dev) driver in place of the data generator, validator
+and test-composer scripts. The system's images are the same ones the root
+workload builds (same Dockerfiles and tags).
 
 ```
 streaming/
   config/      docker-compose.yaml: the --config dir (nothing else goes here)
   driver/      the driver (Rust, hegel) and its Dockerfile
-  local/       compose overlays for the local loop (SDK output, coverage)
-  coverage/    LLVM-coverage build of the producer and consumer, local loop only
-  scripts/     launch.sh, local-run.sh
 ```
 
 ### What the driver does
@@ -69,10 +65,6 @@ answer`. The producer and consumer keep their own SDK assertions.
 ### Faults
 
 `--fault-tolerance high_availability --fault-exclusions '^(driver|state-tracker)$'`.
-The deployment follows `antithesis-instrumentation`: three KRaft
-broker+controller nodes and DynamoDB tables on disk. It leaves out that
-branch's `restart: on-failure` on Kafka, since a restart policy cancels
-Antithesis's kills and stops early.
 
 The original `async_platform` runs injected node kills, stops, pauses and
 throttles, partitions, clogs and clock skips on every container except the
@@ -81,17 +73,20 @@ One difference: the old launcher never put network faults on `kafka-1`, but
 did kill, stop and pause it. snouty can't exclude a container from network
 faults only, so `kafka-1` now gets network faults too.
 
-This branch builds on `antithesis-instrumentation`: merge it before each
-launch (`launch.sh` refuses while it has unmerged commits).
-
 ### Run it
 
 ```bash
-streaming/scripts/local-run.sh 300                         # local loop, 5 min of workload
-EVENTUALLY_AFTER_SECS=90 streaming/scripts/local-run.sh 200 # with one eventually
-COVERAGE=1 streaming/scripts/local-run.sh 300              # with producer/consumer coverage
-streaming/scripts/launch.sh 24                             # Antithesis run, 24 compute hours
+cd antithesis/streaming/config
+docker compose build
+snouty validate .
+snouty launch --launcher basic_test --config . --max-compute-hours 24 \
+  --fault-tolerance high_availability --fault-exclusions '^(driver|state-tracker)$'
 ```
+
+Locally, `docker compose up` and then
+`docker compose exec driver /opt/antithesis/test/v1/main/first_start_workload`
+starts the workload. It can't run alongside the root workload's stack: both
+use the same container names and subnet.
 
 ### Known findings
 

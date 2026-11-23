@@ -1,11 +1,11 @@
 # The data-streaming demo under the Antithesis plugin's workload design.
 # The SUT is unchanged from the original harness: a 3-broker Kafka cluster
 # (KRaft), the producer and consumer services, DynamoDB-local and the
-# Postgres state-tracker. The `driver` replaces the old data generator,
-# data generator client, validator and test-composer scripts.
+# Postgres state-tracker. In this workload the `driver` takes the place of the
+# data generator, data generator client, validator and test-composer scripts.
 #
 # Launch with: --fault-tolerance high_availability --fault-exclusions '^(driver|state-tracker)$'
-# (antithesis/streaming/scripts/launch.sh).
+# (antithesis/README.md).
 
 services:
   # Three combined broker+controller nodes, as on antithesis-instrumentation
@@ -13,7 +13,7 @@ services:
   # policy, unlike the root compose file: Antithesis restarts killed and
   # stopped containers itself, and a policy would cancel those faults early.
   kafka-1:
-    image: dds-kafka:latest
+    image: kafka:latest
     platform: linux/amd64
     build:
       context: ../../../kafka
@@ -40,7 +40,7 @@ services:
       interval: 5s
       retries: 60
   kafka-2:
-    image: dds-kafka:latest
+    image: kafka:latest
     platform: linux/amd64
     container_name: kafka-2
     hostname: kafka-2
@@ -64,7 +64,7 @@ services:
       interval: 5s
       retries: 60
   kafka-3:
-    image: dds-kafka:latest
+    image: kafka:latest
     platform: linux/amd64
     container_name: kafka-3
     hostname: kafka-3
@@ -123,7 +123,7 @@ services:
       interval: 5s
       retries: 20
   producer:
-    image: dds-producer:latest
+    image: producer:latest
     platform: linux/amd64
     build:
       context: ../../../workload/producer
@@ -141,7 +141,7 @@ services:
       kafka-2: { condition: service_healthy }
       kafka-3: { condition: service_healthy }
   consumer:
-    image: dds-consumer:latest
+    image: consumer:latest
     platform: linux/amd64
     build:
       context: ../../../workload/consumer
@@ -160,7 +160,7 @@ services:
       kafka-3: { condition: service_healthy }
       ddb: { condition: service_healthy }
   driver:
-    image: dds-driver:latest
+    image: driver:latest
     platform: linux/amd64
     build:
       context: ..

@@ -18,11 +18,31 @@ on:
           description: Email receipents
 
 jobs:
+  # Launches each workload on the demo tenant with snouty and basic_test.
+  # Needs the ANTITHESIS_API_KEY secret (an Antithesis API key for the demo
+  # tenant). See https://github.com/antithesishq/snouty/blob/main/CI.md
   Demo:
+    # A pull request from a fork gets no secrets, so the launch could only fail.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workload: test-composer
+            config: .
+            exclusions: '^(validator|data_generator|data_generator_client|state-tracker|ddd)$'
+          - workload: hegel
+            config: antithesis/streaming/config
+            exclusions: '^(driver|state-tracker)$'
+    env:
+      ANTITHESIS_TENANT: demo
+      ANTITHESIS_REGISTRY: us-central1-docker.pkg.dev/molten-verve-216720/demo-repository
+      ANTITHESIS_API_KEY: ${{ secrets.ANTITHESIS_API_KEY }}
+      # The runner has Podman too, and snouty prefers it by default.
+      SNOUTY_CONTAINER_ENGINE: docker
 
     steps:
       - name: Checkout code
@@ -35,130 +55,51 @@ jobs:
           username: _json_key
           password: ${{ secrets.ANTITHESIS_GAR_KEY }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install snouty
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/antithesishq/snouty/releases/latest/download/snouty-installer.sh | sh
 
-      - name: Build and Push Config Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./config.Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/demo-data-streaming-config:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/demo-data-streaming-config:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push Data Generator Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./data-generator
-          file: ./data-generator/faker.Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/data_generator:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/data_generator:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push PostgreSQL Client Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./data-generator
-          file: ./data-generator/pgsql_client.Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/pgsql_client:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/pgsql_client:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push DynamoDB Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./dynamoDb
-          file: ./dynamoDb/Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/ddd:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/ddd:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push Kafka Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./kafka
-          file: ./kafka/kafka.Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/kafka:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/kafka:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push Consumer Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./workload/consumer
-          file: ./workload/consumer/Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/consumer:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/consumer:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push Producer Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./workload/producer
-          file: ./workload/producer/Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/producer:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and Push Validator Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./workload/validator
-          file: ./workload/validator/Dockerfile
-          push: true
-          tags: |
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/validator:${{ github.sha }}
-            us-central1-docker.pkg.dev/molten-verve-216720/demo-repository/validator:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Output Image Tags
+      # snouty launches only images in the local image store. Pull the
+      # third-party images first, so the local builds below win.
+      - name: Build and pull images
         run: |
-          echo "Images pushed with tags:"
-          echo "- demo-data-streaming-config:${{ github.sha }}"
-          echo "- data_generator:${{ github.sha }}"
-          echo "- pgsql_client:${{ github.sha }}"
-          echo "- ddd:${{ github.sha }}"
-          echo "- kafka:${{ github.sha }}"
-          echo "- consumer:${{ github.sha }}"
-          echo "- producer:${{ github.sha }}"
-          echo "- validator:${{ github.sha }}"
+          docker compose -f ${{ matrix.config }}/docker-compose.yaml pull --ignore-buildable --ignore-pull-failures
+          make build-all
+          if [ "${{ matrix.workload }}" = hegel ]; then
+            docker compose -f ${{ matrix.config }}/docker-compose.yaml build driver
+          fi
 
-      - name: Trigger Test on Demo
-        uses: antithesishq/antithesis-trigger-action@main
-        with:
-          notebook_name: async_platform
-          tenant: demo
-          username: ${{ secrets.ANTITHESIS_USER_NAME }}
-          password: ${{ secrets.ANTITHESIS_PASSWORD }}
-          github_token: ${{ secrets.GH_PAT }}
-          config_image: demo-data-streaming-config:latest
-          description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
-          email_recipients: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
-          additional_parameters: |-
-            custom.duration=${{ github.event.inputs.duration || '0.5' }}
+      # Starts the system on the runner and waits for setup complete, so a
+      # broken harness fails here instead of in Antithesis.
+      - name: Validate the harness
+        run: snouty validate ${{ matrix.config }} --timeout 10m
+
+      - name: Launch an Antithesis run
+        env:
+          ANTITHESIS_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          DURATION_HOURS: ${{ github.event.inputs.duration || '0.5' }}
+          RECIPIENTS: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Wall-clock hours on the standard tier (48 cores) to compute hours.
+          hours=$(awk -v h="$DURATION_HOURS" 'BEGIN { c = int(h * 48 + 0.5); print (c < 12 ? 12 : c) }')
+          extra=()
+          [ -n "$RECIPIENTS" ] && extra+=(--recipients "$(echo "$RECIPIENTS" | tr ',' ';')")
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) description="PR #$PR_NUMBER: $PR_TITLE" ;;
+            schedule)     description="Nightly run of $GITHUB_REF_NAME"
+                          extra+=(--source "demo-data-streaming-${{ matrix.workload }}") ;;
+            *)            description="Manual run of $GITHUB_REF_NAME" ;;
+          esac
+          snouty launch \
+            --launcher basic_test \
+            --config ${{ matrix.config }} \
+            --test-name "demo-data-streaming-${{ matrix.workload }}" \
+            --description "[${{ matrix.workload }}] $description" \
+            --max-compute-hours "$hours" \
+            --fault-tolerance high_availability \
+            --fault-exclusions '${{ matrix.exclusions }}' \
+            "${extra[@]}"
 
   Rose-Cheetah:
     runs-on: ubuntu-latest
