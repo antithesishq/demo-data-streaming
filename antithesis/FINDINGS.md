@@ -8,7 +8,10 @@ demo's intended bugs; this file records the evidence for each.
 Failing: `Final total equals expected total` and `produced ibans match ibans
 in dynamo` (finding 2), `Produced data matches consumed data after 30s ...`
 (finding 6), and four consumer `Sometimes` assertions written as
-`assert_sometimes!(false, ...)`, which can never pass. Passing: exactly-once
+`assert_sometimes!(false, ...)`, which can never pass. Those four are now
+`assert_unreachable!`, as in the other session's working copy of
+`antithesis-instrumentation`, so they fail only if the consumer really gets a
+payload it can't decode. Passing: exactly-once
 ordering and no-duplicates, recovery once faults stop, no unexpected
 container exits, instrumentation of every component.
 
