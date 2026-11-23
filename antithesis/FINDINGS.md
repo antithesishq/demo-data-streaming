@@ -130,3 +130,30 @@ container exits, instrumentation of every component.
   the variant, so it retries forever (with a blocking `std::thread::sleep`
   inside async code). Fix: `e.into_service_error().is_resource_in_use_exception()`.
   Reached once DynamoDB keeps its tables across restarts (e930628).
+
+## 7. Exactly-once delivery breaks end to end: a producer stop duplicates a record
+
+- **Seen:** run 99cf2345eddc3a3e1ffc38b2c5b8d748-67-26, `Instances of
+  exactly_once_producer produces more than once` (ids 990 and 235 consumed
+  twice).
+- **Timeline (id 990):** 139.437 `transaction committed successfully with
+  topic bankEO, id 990`, the Postgres UPDATE starts, and at 139.466 a `stop`
+  fault hits the producer before it completes. After the restart, 181.629
+  `unproduced data query completed successfully: [990, 991, 992]`, and 182.239
+  commits id 990 to `bankEO` again. The `read_committed` consumer reads both
+  copies (182.42, 182.45) and applies the transfer twice.
+- **Cause:** the producer commits the Kafka transaction, then marks the row
+  produced in Postgres as a separate step. Kafka transactions give
+  exactly-once only inside Kafka. Fixes: mark the row (or a pending state)
+  before committing and reconcile on restart, an outbox, or consumer-side
+  dedupe by id.
+
+## 8. Kafka 4.3.1 exits on a stop during startup
+
+- **Seen:** run cbc43d11933c4006aa0984d9d38dd402-67-26: kafka-2 and kafka-3
+  `exit code: 1`, e.g. `ProcessTerminatingFaultHandler - Encountered fatal
+  fault ... NullPointerException: Cannot invoke
+  "org.apache.kafka.raft.RaftManager.client()" because "this.raftManager" is
+  null`, or the same in `MetadataLoader#installPublishers`, when a `stop`
+  lands while the broker is still starting. A Kafka bug, deliberately not
+  worked around.
