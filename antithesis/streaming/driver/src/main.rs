@@ -267,6 +267,10 @@ struct Shared {
     /// Set by an eventually: no more producing, inserting or consuming from rules.
     quiescing: AtomicBool,
     eventually: Mutex<()>,
+    /// Held from reading how many records are available to the reservation
+    /// of a consume call, so two concurrent calls can't both claim the same
+    /// records and leave one waiting forever.
+    consume_reserve: Mutex<()>,
     eventually_calls: AtomicI64,
     started: Instant,
 }
@@ -618,6 +622,7 @@ impl Shared {
             while start.elapsed() < DRAIN_WINDOW {
                 let mut remaining = 0;
                 for mode in CONSUME_MODES {
+                    let _reserve = self.consume_reserve.lock().unwrap_or_else(|e| e.into_inner());
                     let Ok(left) = self.unconsumed(&mode) else { continue };
                     remaining += left;
                     let ask = (left - self.consume_requested[mode.idx].load(Ordering::SeqCst)).min(100);
@@ -760,12 +765,14 @@ impl Driver {
         if self.s.quiescing.load(Ordering::SeqCst) {
             return;
         }
+        let _reserve = self.s.consume_reserve.lock().unwrap_or_else(|e| e.into_inner());
         let left = match self.s.unconsumed(&mode) {
             Ok(l) => l,
             Err(e) => return log(format!("consume: counting unconsumed records: {e}")),
         };
         let avail = left - self.s.consume_requested[mode.idx].load(Ordering::SeqCst);
         if avail <= 0 {
+            drop(_reserve);
             return std::thread::sleep(IDLE);
         }
         let n = tc.draw(gs::integers::<i64>().min_value(1).max_value(avail.min(100)));
@@ -824,6 +831,7 @@ fn main(tc: TestCase) {
                 consume_requested: [AtomicI64::new(0), AtomicI64::new(0)],
                 quiescing: AtomicBool::new(false),
                 eventually: Mutex::new(()),
+                consume_reserve: Mutex::new(()),
                 eventually_calls: AtomicI64::new(0),
                 started: Instant::now(),
             })
