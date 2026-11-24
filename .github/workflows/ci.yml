@@ -74,6 +74,7 @@ jobs:
         run: snouty validate ${{ matrix.config }} --timeout 10m
 
       - name: Launch an Antithesis run
+        id: launch
         env:
           ANTITHESIS_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           DURATION_HOURS: ${{ github.event.inputs.duration || '0.5' }}
@@ -81,6 +82,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
+          set -o pipefail
           # Wall-clock hours on the standard tier (48 cores) to compute hours.
           hours=$(awk -v h="$DURATION_HOURS" 'BEGIN { c = int(h * 48 + 0.5); print (c < 12 ? 12 : c) }')
           extra=()
@@ -99,7 +101,56 @@ jobs:
             --max-compute-hours "$hours" \
             --fault-tolerance high_availability \
             --fault-exclusions '${{ matrix.exclusions }}' \
-            "${extra[@]}"
+            --json \
+            "${extra[@]}" | tee launch.json
+          echo "run_id=$(jq -r '.runId' launch.json)" >> "$GITHUB_OUTPUT"
+
+      # Follows the run's properties as they resolve and fails the job on the
+      # first failing one. The run itself keeps going, and its report still
+      # arrives when it completes.
+      - name: Fail on the first failing property
+        env:
+          RUN_ID: ${{ steps.launch.outputs.run_id }}
+        run: |
+          echo "Antithesis run: $RUN_ID"
+          failed() {
+            echo "::error title=Antithesis property failed::$1"
+            { echo "### ❌ Antithesis property failed"; echo
+              echo "**$1**"; echo
+              echo "Run \`$RUN_ID\`. Open it with \`snouty runs show --web $RUN_ID\`."; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+          check_current() {
+            name=$(snouty runs properties "$RUN_ID" --failing --json | jq -r '.name' | head -n 1)
+            [ -z "$name" ] || failed "$name"
+          }
+
+          # Start the stream first, then read the current results, so no
+          # verdict falls between the two.
+          snouty runs stream "$RUN_ID" --json > stream.ndjson 2> stream.err &
+          stream=$!
+          until grep -q 'is open' stream.err; do
+            kill -0 "$stream" 2>/dev/null || break
+            sleep 10
+          done
+          check_current
+
+          while IFS= read -r event; do
+            case "$(jq -r '.event' <<<"$event")" in
+              verdict)
+                if [ "$(jq -r '.verdict' <<<"$event")" = failed ]; then
+                  failed "$(jq -r '.name // .property_id' <<<"$event")"
+                fi ;;
+              completed) break ;;
+            esac
+          done < <(tail -n +1 -f --pid="$stream" stream.ndjson)
+
+          # The stream ended, at completion or early: settle on the final results.
+          snouty runs wait "$RUN_ID"
+          check_current
+          report=$(snouty runs show "$RUN_ID" --json | jq -r '.links.triage_report // empty')
+          { echo "### ✅ No Antithesis property failed"; echo
+            echo "Run \`$RUN_ID\`${report:+: [report]($report)}"; } >> "$GITHUB_STEP_SUMMARY"
 
   Rose-Cheetah:
     runs-on: ubuntu-latest
