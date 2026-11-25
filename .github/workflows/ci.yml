@@ -18,11 +18,7 @@ on:
           description: Email receipents
 
 jobs:
-  # Launches each workload on the demo tenant with snouty and basic_test.
-  # Needs the ANTITHESIS_API_KEY secret (an Antithesis API key for the demo
-  # tenant). See https://github.com/antithesishq/snouty/blob/main/CI.md
   Demo:
-    # A pull request from a fork gets no secrets, so the launch could only fail.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
@@ -41,7 +37,6 @@ jobs:
       ANTITHESIS_TENANT: demo
       ANTITHESIS_REGISTRY: us-central1-docker.pkg.dev/molten-verve-216720/demo-repository
       ANTITHESIS_API_KEY: ${{ secrets.ANTITHESIS_API_KEY }}
-      # The runner has Podman too, and snouty prefers it by default.
       SNOUTY_CONTAINER_ENGINE: docker
 
     steps:
@@ -58,8 +53,6 @@ jobs:
       - name: Install snouty
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/antithesishq/snouty/releases/latest/download/snouty-installer.sh | sh
 
-      # snouty launches only images in the local image store. Pull the
-      # third-party images first, so the local builds below win.
       - name: Build and pull images
         run: |
           docker compose -f ${{ matrix.config }}/docker-compose.yaml pull --ignore-buildable --ignore-pull-failures
@@ -68,8 +61,6 @@ jobs:
             docker compose -f ${{ matrix.config }}/docker-compose.yaml build driver
           fi
 
-      # Starts the system on the runner and waits for setup complete, so a
-      # broken harness fails here instead of in Antithesis.
       - name: Validate the harness
         run: snouty validate ${{ matrix.config }} --timeout 10m
 
@@ -81,7 +72,6 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # Wall-clock hours on the standard tier (48 cores) to compute hours.
           hours=$(awk -v h="$DURATION_HOURS" 'BEGIN { c = int(h * 48 + 0.5); print (c < 12 ? 12 : c) }')
           extra=()
           [ -n "$RECIPIENTS" ] && extra+=(--recipients "$(echo "$RECIPIENTS" | tr ',' ';')")

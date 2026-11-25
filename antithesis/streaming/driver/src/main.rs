@@ -1,14 +1,13 @@
 //! Antithesis driver for the data-streaming demo.
 //!
-//! The system under test is the bank pipeline: records land in the
+//! The system under test is a bank pipeline. Records land in the
 //! state-tracker (Postgres), the producer service moves them to Kafka under
 //! one of four delivery modes, and the consumer service reads them back and
 //! applies them to account balances in DynamoDB.
 //!
-//! This driver plays the upstream that writes records into the state-tracker
-//! and the scheduler that calls the producer and consumer, and it checks the
-//! pipeline's guarantees against the state-tracker and DynamoDB. Every random
-//! choice comes from hegel, so Antithesis controls it.
+//! The Antithesis fuzzer provides randomness to the Hegel driver to generate
+//! the records, the calls that push them through the pipeline, and check the
+//! results.
 
 use antithesis_instrumentation as _;
 
@@ -29,22 +28,23 @@ use std::time::{Duration, Instant};
 // ---------------------------------------------------------------------------
 
 const INITIAL_FUNDING: i64 = 1000;
-/// The producer and the consumer each serve one request at a time (their
-/// handlers hold a service-wide lock), so a few outstanding requests are
-/// enough to keep them busy.
+/// The producer and the consumer each handle one request at a time so two
+/// requests in progress are enough to keep them busy.
 const MAX_IN_FLIGHT: usize = 2;
-/// How long a rule waits for its request before leaving it to finish in the
-/// background. Keeps rounds short.
+/// Duration of time a rule waits for its request. After that the request
+/// keeps running in the background so the test can move on.
 const WAIT_FOR_OUTCOME: Duration = Duration::from_secs(1);
-/// How long a background request may take before the driver gives up on it.
+/// Duration of time a background request may take before the driver gives up
+/// on it.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
-/// How long a rule pauses when it has nothing to do (a service is busy, the
-/// backlog is full), so a timeline whose services are stuck doesn't spin.
+/// Duration of time a rule pauses when it has nothing to do. This happens
+/// when a service is busy or enough records are already waiting.
 const IDLE: Duration = Duration::from_millis(200);
 /// Stop inserting records while this many are still waiting to be produced.
 const MAX_BACKLOG: i64 = 400;
 const MAX_ACCOUNTS: usize = 300;
-/// The window the old harness gave the consumer to drain after production stopped.
+/// Duration of time the consumer gets to finish reading once producing has
+/// stopped.
 const DRAIN_WINDOW: Duration = Duration::from_secs(30);
 const RECOVERY_DEADLINE: Duration = Duration::from_secs(240);
 
@@ -119,7 +119,7 @@ impl Config {
 // Clients
 // ---------------------------------------------------------------------------
 
-/// Postgres connections to the state-tracker, one per worker at a time.
+/// A pool of Postgres connections to the state-tracker.
 struct Pg {
     conn: String,
     pool: Mutex<Vec<postgres::Client>>,
@@ -146,7 +146,7 @@ impl Pg {
                 self.pool.lock().unwrap_or_else(|e| e.into_inner()).push(client);
                 Ok(v)
             }
-            // Drop the connection: it may be broken.
+            // The call failed so close this connection instead of reusing it.
             Err(e) => Err(e.to_string()),
         }
     }
@@ -161,11 +161,12 @@ fn agent(timeout: Duration) -> ureq::Agent {
 
 #[derive(Debug, Clone)]
 enum Outcome {
-    /// The service answered 2xx: the request ran to completion.
+    /// The service answered 2xx so the request finished.
     Ok,
     /// The service answered with an error status.
     Failed(String),
-    /// No answer: the request may or may not have run, and may still be running.
+    /// The service did not answer so the request may have run or may still be
+    /// running.
     Unknown(String),
 }
 
@@ -179,8 +180,8 @@ fn post(agent: &ureq::Agent, url: &str) -> Outcome {
     }
 }
 
-/// DynamoDB's JSON API. dynamodb-local checks that a signature is present,
-/// not that it is valid.
+/// Calls DynamoDB's JSON API. The local DynamoDB checks that a request is
+/// signed but does not check the signature so a placeholder is enough.
 fn ddb_call(agent: &ureq::Agent, url: &str, target: &str, body: &Value) -> Result<Value, String> {
     let resp = agent
         .post(url)
@@ -204,8 +205,9 @@ fn ddb_call(agent: &ureq::Agent, url: &str, target: &str, body: &Value) -> Resul
     }
 }
 
-/// Every account in DynamoDB's `accounts` table, as (iban, balance).
-/// `None` when the table doesn't exist yet: nothing was consumed.
+/// Returns every account in DynamoDB's `accounts` table with its balance.
+/// Returns `None` when the table doesn't exist yet because the consumer has
+/// not read anything.
 fn ddb_scan(agent: &ureq::Agent, url: &str) -> Result<Option<BTreeMap<String, f64>>, String> {
     let mut accounts = BTreeMap::new();
     let mut start: Option<Value> = None;
@@ -252,24 +254,24 @@ fn tcp_up(addr: &str) -> Result<(), String> {
 struct Shared {
     cfg: Config,
     pg: Pg,
-    /// Short-timeout agent for checks and readiness.
+    /// Makes HTTP calls with a short timeout for checks and readiness.
     quick: ureq::Agent,
-    /// Long-timeout agent for producer and consumer calls.
+    /// Makes producer and consumer calls with a long timeout.
     slow: ureq::Agent,
-    /// IBANs of the fund-account records the driver inserted.
+    /// Lists the IBANs of the accounts the driver has created.
     accounts: Mutex<Vec<String>>,
     next_account: AtomicI64,
     produce_in_flight: AtomicUsize,
     consume_in_flight: AtomicUsize,
-    /// Records requested by consume calls still outstanding, per topic, so
-    /// concurrent calls don't ask for the same records twice.
+    /// Counts the records per topic that in-progress consume calls have
+    /// already asked for so two calls don't ask for the same records.
     consume_requested: [AtomicI64; 2],
-    /// Set by an eventually: no more producing, inserting or consuming from rules.
+    /// Tells rules to stop inserting, producing, and consuming during the
+    /// final check.
     quiescing: AtomicBool,
     eventually: Mutex<()>,
-    /// Held from reading how many records are available to the reservation
-    /// of a consume call, so two concurrent calls can't both claim the same
-    /// records and leave one waiting forever.
+    /// Holds the lock while a consume call counts the available records and
+    /// claims some so two calls can't claim the same records.
     consume_reserve: Mutex<()>,
     eventually_calls: AtomicI64,
     started: Instant,
@@ -281,7 +283,7 @@ fn log(msg: impl AsRef<str>) {
     println!("driver: {}", msg.as_ref());
 }
 
-/// Prints a waiting message only when it changes, so waits don't flood the log.
+/// Prints a waiting message only when it changes to keep the log short.
 struct WaitLog(String);
 impl WaitLog {
     fn say(&mut self, msg: String) {
@@ -295,7 +297,8 @@ impl WaitLog {
 impl Shared {
     // ---- readiness ---------------------------------------------------------
 
-    /// What isn't serving yet; empty when everything is.
+    /// Returns the services that are not ready yet. Returns an empty list when
+    /// all of them are ready.
     fn not_ready(&self) -> Vec<String> {
         let mut down = vec![];
         if let Err(e) = self.pg.with(|c| c.simple_query("SELECT 1").map(|_| ())) {
@@ -304,8 +307,8 @@ impl Shared {
         if let Err(e) = ddb_call(&self.quick, &self.cfg.ddb_url, "ListTables", &json!({})) {
             down.push(format!("ddb: {e}"));
         }
-        // The services have no health endpoint; any HTTP answer, such as a
-        // 404 for `/`, means they serve.
+        // The producer and consumer have no health endpoint so the driver treats
+        // any HTTP answer, even a 404, as ready.
         for (name, url) in [("producer", &self.cfg.producer_url), ("consumer", &self.cfg.consumer_url)] {
             match self.quick.get(url).call() {
                 Ok(_) | Err(ureq::Error::Status(..)) => {}
@@ -353,9 +356,9 @@ impl Shared {
                         produced_seq BIGINT DEFAULT NULL,
                         consumed_seq BIGINT DEFAULT NULL
                     );
-                    -- One sequence for produce and consume events, which the
-                    -- producer and consumer stamp, so order checks don't rely
-                    -- on container clocks.
+                    -- The producer and consumer give each produce and consume
+                    -- event the next number from this one counter so order
+                    -- checks don't depend on each container's clock.
                     CREATE SEQUENCE IF NOT EXISTS event_seq;",
                 )
             });
@@ -379,7 +382,7 @@ impl Shared {
         })
     }
 
-    /// Records produced onto `mode`'s topic and not yet recorded as consumed.
+    /// Counts the records on this topic that the consumer has not read yet.
     fn unconsumed(&self, mode: &ConsumeMode) -> Result<i64, String> {
         let types: Vec<&str> = mode.producer_types.to_vec();
         self.pg.with(|c| {
@@ -407,8 +410,9 @@ impl Shared {
 
     // ---- background requests -----------------------------------------------
 
-    /// Sends `url` on a background thread and waits up to WAIT_FOR_OUTCOME for
-    /// its outcome. `done` runs when the outcome arrives, however late.
+    /// Sends the request on a background thread and waits up to
+    /// WAIT_FOR_OUTCOME for the result. Runs `done` when the result arrives
+    /// even if that is later.
     fn send(
         self: &Arc<Self>,
         url: String,
@@ -472,10 +476,10 @@ impl Shared {
     }
 
     // ---- guarantee checks --------------------------------------------------
-    // These keep the old harness's assertion messages, so the properties line
-    // up with the history of earlier runs.
+    // These checks reuse the assertion messages from the original test so
+    // results line up with earlier runs.
 
-    /// No record produced by an exactly-once producer is consumed twice.
+    /// Checks that the consumer never reads an exactly-once record twice.
     fn check_exactly_once(&self) {
         let rows = self.pg.with(|c| {
             c.query(
@@ -500,10 +504,10 @@ impl Shared {
         );
     }
 
-    /// Kafka orders messages within a partition, and `bankEO` has one, so
-    /// every exactly-once record consumed after another was also produced
-    /// after it. (The at-least-once topic makes no ordering promise.)
-    /// `produced_seq` and `consumed_seq` come from one Postgres sequence.
+    /// Checks that the consumer reads exactly-once records in the order the
+    /// producer sent them. Kafka keeps messages in order within a partition and
+    /// this topic has only one. The at-least-once topic makes no promise about
+    /// order.
     fn check_order(&self) {
         let rows = self.pg.with(|c| {
             c.query(
@@ -532,9 +536,8 @@ impl Shared {
         );
     }
 
-    /// Two identical consecutive scans. A scan isn't isolated from
-    /// transactions, so one scan can see half of a transfer; two identical
-    /// ones can't, since the second reads every item after the first ended.
+    /// Reads every account until two reads in a row match. A single read can
+    /// catch a transfer halfway through. Two matching reads cannot.
     fn stable_scan(&self) -> Option<BTreeMap<String, f64>> {
         let mut prev = ddb_scan(&self.quick, &self.cfg.ddb_url).ok()??;
         for _ in 0..5 {
@@ -547,8 +550,8 @@ impl Shared {
         None
     }
 
-    /// Transfers move money between accounts and never create or destroy it:
-    /// the total balance is the initial funding of every account.
+    /// Checks that the total balance equals the starting funds of every account.
+    /// Transfers only move money between accounts.
     fn check_balance(&self) {
         let Some(accounts) = self.stable_scan() else { return };
         let total: f64 = accounts.values().sum();
@@ -561,9 +564,9 @@ impl Shared {
         );
     }
 
-    /// Every account in DynamoDB comes from a fund-account record that the
-    /// state-tracker shows as consumed. DynamoDB is read first: the consumer
-    /// records a record as consumed before it applies it.
+    /// Checks that every account in DynamoDB comes from a funding record the
+    /// consumer has read. The driver reads DynamoDB first because the consumer
+    /// marks a record as read before it applies it.
     fn check_ibans(&self) {
         let Ok(Some(accounts)) = ddb_scan(&self.quick, &self.cfg.ddb_url) else { return };
         let funded = self.pg.with(|c| {
@@ -616,8 +619,8 @@ impl Shared {
             &json!({"not_serving": down})
         );
         if down.is_empty() {
-            // Production stopped: drain both topics, then check that
-            // everything produced was consumed.
+            // Producing has stopped. Read everything left on both topics and then
+            // check that the consumer read every record the producer sent.
             let start = Instant::now();
             while start.elapsed() < DRAIN_WINDOW {
                 let mut remaining = 0;
@@ -681,7 +684,8 @@ fn letters(tc: &TestCase, n: usize) -> String {
 
 #[hegel::concurrent_state_machine]
 impl Driver {
-    /// New accounts, each funded with INITIAL_FUNDING once consumed.
+    /// Creates new accounts. Each one starts with INITIAL_FUNDING once the
+    /// consumer reads its record.
     #[rule(weight = 2)]
     fn insert_accounts(&self, tc: TestCase) {
         let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(10));
@@ -694,7 +698,7 @@ impl Driver {
         let mut rows = vec![];
         let mut ibans = vec![];
         for _ in 0..n {
-            // Unique by construction: the counter fills the account number.
+            // The counter is used as the account number so no two IBANs match.
             let k = self.s.next_account.fetch_add(1, Ordering::SeqCst);
             let iban = format!("GB{}{}{:014}", digits(&tc, 2), letters(&tc, 4), k);
             let data = json!({
@@ -712,8 +716,8 @@ impl Driver {
         }
     }
 
-    /// Transfers between known accounts, including ones whose funding
-    /// record hasn't been produced or consumed yet.
+    /// Creates transfers between existing accounts. Some accounts may not have
+    /// received their starting funds yet.
     #[rule(weight = 3)]
     fn insert_transfers(&self, tc: TestCase) {
         let accounts = self.s.accounts.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -725,8 +729,8 @@ impl Driver {
         }
         let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(20));
         let pick = |tc: &TestCase| -> String {
-            // Favor the newest accounts sometimes: their funding is the most
-            // likely to still be in flight.
+            // Pick the newest accounts more often because their starting funds
+            // are the most likely to still be on the way.
             let recent = tc.draw(gs::weighted_booleans(0.3));
             let lo = if recent { accounts.len().saturating_sub(10) } else { 0 };
             let i = tc.draw(gs::integers::<usize>().min_value(lo).max_value(accounts.len() - 1));
@@ -758,10 +762,7 @@ impl Driver {
     #[rule(weight = 4)]
     fn consume(&self, tc: TestCase) {
         let mode = tc.draw(gs::sampled_from(CONSUME_MODES.to_vec()));
-        // A consume call blocks until it has read as many records as it asked
-        // for, holding the consumer's only lock, so asking for more than the
-        // topic holds parks the consumer for good (FINDINGS.md). Ask only for
-        // records the state-tracker shows as produced and not yet consumed.
+        // Ask only for records that are waiting to be read.
         if self.s.quiescing.load(Ordering::SeqCst) {
             return;
         }
@@ -838,7 +839,8 @@ fn main(tc: TestCase) {
         })
         .clone();
 
-    // Startup: every node answers, then admin setup, then setup complete.
+    // Wait for every service, create the database table, and then tell
+    // Antithesis that setup is complete.
     s.wait_ready(None);
     s.create_schema();
     lifecycle::setup_complete(&json!({"message": "data-streaming pipeline ready"}));
@@ -849,8 +851,8 @@ fn main(tc: TestCase) {
     assert_reachable!("the workload starts", &json!({}));
     log("workload active");
 
-    // Local loop: EVENTUALLY_DISABLED turns the eventually rule off, and
-    // EVENTUALLY_AFTER_SECS runs one after that many seconds of workload.
+    // EVENTUALLY_DISABLED turns the final check off for local runs.
+    // EVENTUALLY_AFTER_SECS runs it once after that many seconds.
     let eventually_enabled = std::env::var("EVENTUALLY_DISABLED").map_or(true, |v| v.is_empty());
     if let Some(secs) = std::env::var("EVENTUALLY_AFTER_SECS").ok().and_then(|v| v.parse().ok()) {
         let s2 = s.clone();

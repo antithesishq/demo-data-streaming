@@ -1,17 +1,4 @@
-# The data-streaming demo under the Antithesis plugin's workload design.
-# The SUT is unchanged from the original harness: a 3-broker Kafka cluster
-# (KRaft), the producer and consumer services, DynamoDB-local and the
-# Postgres state-tracker. In this workload the `driver` takes the place of the
-# data generator, data generator client, validator and test-composer scripts.
-#
-# Launch with: --fault-tolerance high_availability --fault-exclusions '^(driver|state-tracker)$'
-# (antithesis/README.md).
-
 services:
-  # Three combined broker+controller nodes, as on antithesis-instrumentation
-  # (7f51398), so the KRaft quorum survives losing any one node. No `restart:`
-  # policy, unlike the root compose file: Antithesis restarts killed and
-  # stopped containers itself, and a policy would cancel those faults early.
   kafka-1:
     image: kafka:latest
     platform: linux/amd64
@@ -29,8 +16,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      # A restarted node waits for the quorum instead of exiting after 60 s
-      # (f8a1803).
       KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
@@ -53,8 +38,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      # A restarted node waits for the quorum instead of exiting after 60 s
-      # (f8a1803).
       KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
@@ -77,8 +60,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      # A restarted node waits for the quorum instead of exiting after 60 s
-      # (f8a1803).
       KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
@@ -106,8 +87,6 @@ services:
   ddb:
     image: docker.io/amazon/dynamodb-local:2.6.1
     platform: linux/amd64
-    # Tables on disk instead of the default -inMemory, so a killed ddb keeps
-    # its data, as a real DynamoDB would (e930628).
     command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal"]
     container_name: ddb
     hostname: ddb

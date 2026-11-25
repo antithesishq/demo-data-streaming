@@ -3,9 +3,6 @@ services:
     image: kafka:latest
     container_name: kafka-1
     hostname: kafka-1
-    # Three combined broker+controller nodes, so the KRaft controller quorum
-    # survives losing any one node, and a broker that stops can rejoin the
-    # remaining quorum. A single controller is not a production deployment.
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_PROCESS_ROLES: "broker,controller"
@@ -15,11 +12,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      # A restarting broker gives up and exits if it can't register with the
-      # controller quorum within this time (default 60s), on the assumption
-      # that a supervisor restarts it. Here Antithesis restarts only the
-      # containers it faults, and a compose restart policy would cancel its
-      # faults, so let the broker keep trying through long network faults.
       KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
@@ -32,9 +24,6 @@ services:
     image: kafka:latest
     container_name: kafka-2
     hostname: kafka-2
-    # Three combined broker+controller nodes, so the KRaft controller quorum
-    # survives losing any one node, and a broker that stops can rejoin the
-    # remaining quorum. A single controller is not a production deployment.
     environment:
       KAFKA_BROKER_ID: 2
       KAFKA_PROCESS_ROLES: "broker,controller"
@@ -44,11 +33,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      # A restarting broker gives up and exits if it can't register with the
-      # controller quorum within this time (default 60s), on the assumption
-      # that a supervisor restarts it. Here Antithesis restarts only the
-      # containers it faults, and a compose restart policy would cancel its
-      # faults, so let the broker keep trying through long network faults.
       KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
@@ -61,9 +45,6 @@ services:
     image: kafka:latest
     container_name: kafka-3
     hostname: kafka-3
-    # Three combined broker+controller nodes, so the KRaft controller quorum
-    # survives losing any one node, and a broker that stops can rejoin the
-    # remaining quorum. A single controller is not a production deployment.
     environment:
       KAFKA_BROKER_ID: 3
       KAFKA_PROCESS_ROLES: "broker,controller"
@@ -73,11 +54,6 @@ services:
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
-      # A restarting broker gives up and exits if it can't register with the
-      # controller quorum within this time (default 60s), on the assumption
-      # that a supervisor restarts it. Here Antithesis restarts only the
-      # containers it faults, and a compose restart policy would cancel its
-      # faults, so let the broker keep trying through long network faults.
       KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
@@ -103,9 +79,9 @@ services:
     image: pgsql_client:latest
     environment:
       DATA_TYPE: _banktest_transaction
-      BATCH_SAVE_SIZE: 100 # saving # of records per batch
+      BATCH_SAVE_SIZE: 100
       BANK_TEST_NO_ACCOUNTS: 100
-      DATA_GENERATOR_ENDPOINT: http://data-generator:5000 # !No trailing slash
+      DATA_GENERATOR_ENDPOINT: http://data-generator:5000
       POSTGRES_HOST: state-tracker
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
@@ -189,8 +165,6 @@ services:
     container_name: ddb
     hostname: ddb
     image: docker.io/amazon/dynamodb-local:2.6.1
-    # Store tables on disk instead of the image's default -inMemory, so a
-    # killed or stopped ddb comes back with its data, as a real DynamoDB would.
     command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal"]
     ports:
       - "8000:8000"
