@@ -1,11 +1,4 @@
 #!/usr/bin/env -S python3 -u
-# Invariant: every account is funded with the initial amount exactly once, and
-# transfers only move money between accounts, so the total balance always
-# equals (number of accounts) x (initial amount).
-#
-# This runs at any time, including while DynamoDB is faulted. If DynamoDB is
-# unreachable or the table doesn't exist yet, there is nothing to check right
-# now, so exit 0 rather than failing the command.
 
 import os
 import sys
@@ -27,8 +20,6 @@ except (BotoCoreError, ClientError) as e:
     print(f"DynamoDB unavailable, skipping balance check: {e}")
     sys.exit(0)
 
-# Only a single-page scan is one consistent read. Across pages, a transfer
-# can move money between a page already read and one not yet read.
 if 'LastEvaluatedKey' in response:
     print("accounts table spans more than one scan page; skipping balance check")
     sys.exit(0)

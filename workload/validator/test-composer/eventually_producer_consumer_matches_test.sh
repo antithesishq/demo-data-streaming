@@ -1,10 +1,5 @@
 #!/bin/bash
-# Make sure no fault lands during the drain check (one did in run e5957b51...,
-# although an eventually_ command should already stop faults).
 [ -n "${ANTITHESIS_STOP_FAULTS}" ] && "${ANTITHESIS_STOP_FAULTS}" 3600
-# Faults have just stopped, so a consumer that was killed or stopped may still
-# be restarting. Wait for it to answer (any HTTP status) before asking it to
-# consume, or the requests below fail and nothing is consumed during the check.
 for _ in $(seq 1 60); do
   curl -s -o /dev/null -m 2 consumer:3000/ && break
   sleep 2

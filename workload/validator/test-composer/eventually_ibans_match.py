@@ -1,11 +1,4 @@
 #!/usr/bin/env -S python3 -u
-# Invariant: every account in DynamoDB was created by a funding message that
-# the consumer consumed. An account with no consumed funding message is a
-# phantom account.
-#
-# This runs once faults stop, but DynamoDB may still be restarting, so retry
-# the scan for a while before checking. If it never comes back, that's a real
-# failure and the command exits non-zero.
 
 import json
 import os
@@ -20,9 +13,6 @@ from antithesis.assertions import always
 
 RETRY_FOR_SECONDS = 120
 
-# The consumer records a funding message as consumed in Postgres before it
-# writes the account to DynamoDB, so read Postgres first. If nothing has been
-# consumed yet, DynamoDB has no accounts to check.
 conn = psycopg2.connect(host='state-tracker', user='u', password='p', database='d')
 cursor = conn.cursor()
 cursor.execute('''
