@@ -138,8 +138,9 @@ snouty launch --launcher basic_test --config antithesis/streaming/config --max-c
 
 `snouty validate <config dir>` checks either one locally first. The two can't
 run locally at the same time: they use the same container names and subnet.
-CI ([`ci.yml`](.github/workflows/ci.yml)) launches both nightly, on pull
-requests and on demand. When a report arrives, open a finding in the
+CI launches both nightly, on pull requests and on demand, once per tenant:
+[`demo.yml`](.github/workflows/demo.yml) and
+[`rose-cheetah.yml`](.github/workflows/rose-cheetah.yml). When a report arrives, open a finding in the
 **multiverse debugger** to replay and inspect the exact failing run.
 
 ## Properties under test
