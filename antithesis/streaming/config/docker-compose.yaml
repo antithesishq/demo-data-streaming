@@ -1,0 +1,169 @@
+services:
+  kafka-1:
+    image: kafka:latest
+    platform: linux/amd64
+    build:
+      context: ../../../kafka
+      dockerfile: kafka.Dockerfile
+    container_name: kafka-1
+    hostname: kafka-1
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.11
+    healthcheck:
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-1:9092 || exit 1
+      interval: 5s
+      retries: 60
+  kafka-2:
+    image: kafka:latest
+    platform: linux/amd64
+    container_name: kafka-2
+    hostname: kafka-2
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092,CONTROLLER://kafka-2:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.12
+    healthcheck:
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-2:9092 || exit 1
+      interval: 5s
+      retries: 60
+  kafka-3:
+    image: kafka:latest
+    platform: linux/amd64
+    container_name: kafka-3
+    hostname: kafka-3
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092,CONTROLLER://kafka-3:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.13
+    healthcheck:
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-3:9092 || exit 1
+      interval: 5s
+      retries: 60
+  state-tracker:
+    image: docker.io/library/postgres:12.22
+    platform: linux/amd64
+    container_name: state-tracker
+    hostname: state-tracker
+    environment:
+      POSTGRES_PASSWORD: p
+      POSTGRES_USER: u
+      POSTGRES_DB: d
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.16
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d d -U u"]
+      interval: 5s
+      retries: 60
+  ddb:
+    image: docker.io/amazon/dynamodb-local:2.6.1
+    platform: linux/amd64
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal"]
+    container_name: ddb
+    hostname: ddb
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.20
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'if [ "$(curl -s -o /dev/null -I -w ''%{http_code}'' http://localhost:8000)" == "400" ]; then exit 0; else exit 1; fi',
+        ]
+      interval: 5s
+      retries: 20
+  producer:
+    image: producer:latest
+    platform: linux/amd64
+    build:
+      context: ../../../workload/producer
+      dockerfile: Dockerfile
+    container_name: producer
+    hostname: producer
+    environment:
+      RUST_LOG: debug
+    entrypoint: /producer/target/x86_64-unknown-linux-gnu/release/producer
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.17
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+  consumer:
+    image: consumer:latest
+    platform: linux/amd64
+    build:
+      context: ../../../workload/consumer
+      dockerfile: Dockerfile
+    container_name: consumer
+    hostname: consumer
+    environment:
+      RUST_LOG: debug
+    entrypoint: /consumer/target/x86_64-unknown-linux-gnu/release/consumer
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.18
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+      ddb: { condition: service_healthy }
+  driver:
+    image: driver:latest
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: driver/Dockerfile
+    container_name: driver
+    hostname: driver
+    environment:
+      PRODUCER_URL: http://producer:3000
+      CONSUMER_URL: http://consumer:3000
+      DDB_URL: http://ddb:8000
+      PG_CONN: host=state-tracker user=u password=p dbname=d connect_timeout=3
+      KAFKA_BROKERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    networks:
+      kafka-net:
+        ipv4_address: 11.0.0.30
+    depends_on:
+      state-tracker: { condition: service_healthy }
+      ddb: { condition: service_healthy }
+      producer: { condition: service_started }
+      consumer: { condition: service_started }
+
+networks:
+  kafka-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 11.0.0.0/24

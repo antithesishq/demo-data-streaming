@@ -85,6 +85,7 @@ The **state-tracker** is the source of truth: every generated record is one Post
 │   ├── producer/              # Rust/axum producer (4 delivery modes)
 │   ├── consumer/              # Rust/axum passthrough consumer (2 modes)
 │   └── validator/             # Rust validator CLI + test-composer scripts
+├── antithesis/                # second workload: a hegel driver (see antithesis/README.md)
 └── .github/workflows/         # CI + Antithesis trigger / debugging workflows
 ```
 
@@ -110,13 +111,37 @@ Individual images can be built or pushed with the per-component targets, e.g. `m
 
 ### Launch an Antithesis test
 
-1. Build and push the images (`make build-all && make push-all`) and the config image (`make build-config && make push-config`).
-2. Run the [`Run Antithesis Test`](.github/workflows/run_antithesis_test.yml) GitHub Action (`workflow_dispatch`), providing:
-   * `duration` — how long the test runs, in hours
-   * `emails` — comma-separated recipients for the report
-3. When the report arrives, optionally open a finding in the **multiverse debugger** to replay and inspect the exact failing run.
+The repository has two workloads that test the same system for the same
+properties, both launched with [snouty](https://github.com/antithesishq/snouty)
+on the `basic_test` launcher:
 
-The action submits the locally-built images plus a `config_image` — a `FROM scratch` image carrying only `docker-compose.yaml` — to the `async_platform` notebook in the `demo` tenant via the [`antithesis-trigger-action`](https://github.com/antithesishq/antithesis-trigger-action).
+* **Test composer** (this directory): the data generator, validator and
+  `test-composer` scripts. Its workload containers are kept out of faults.
+* **Hegel** ([`antithesis/`](antithesis/README.md)): one
+  [hegel](https://hegel.dev) driver, written with the
+  [Antithesis plugin](https://github.com/antithesishq/antithesis-plugin), in
+  place of those scripts.
+
+```bash
+make build-all                                   # images for both workloads
+
+# Test composer
+snouty launch --launcher basic_test --config . --max-compute-hours 24 \
+  --fault-tolerance high_availability \
+  --fault-exclusions '^(validator|data_generator|data_generator_client|state-tracker|ddd)$'
+
+# Hegel
+docker compose -f antithesis/streaming/config/docker-compose.yaml build driver
+snouty launch --launcher basic_test --config antithesis/streaming/config --max-compute-hours 24 \
+  --fault-tolerance high_availability --fault-exclusions '^(driver|state-tracker)$'
+```
+
+`snouty validate <config dir>` checks either one locally first. The two can't
+run locally at the same time: they use the same container names and subnet.
+CI launches both nightly, on pull requests and on demand, once per tenant:
+[`demo.yml`](.github/workflows/demo.yml) and
+[`rose-cheetah.yml`](.github/workflows/rose-cheetah.yml). When a report arrives, open a finding in the
+**multiverse debugger** to replay and inspect the exact failing run.
 
 ## Properties under test
 
@@ -128,7 +153,7 @@ Properties are expressed with [Antithesis SDK](https://antithesis.com/docs/using
 | 2 | Produced data is consumed from Kafka | liveness | consumer (`assert_sometimes`) |
 | 3 | **Exactly-once**: no record is consumed more than once | correctness | `validator --test exactly-once-guarantee` |
 | 4 | **At-least-once**: every produced record is eventually consumed | correctness | `validator --test producer-consumer-matches` |
-| 5 | **Ordering**: consumption order matches generation order | correctness | `validator --test consumption-order` |
+| 5 | **Ordering**: the exactly-once topic is consumed in the order it was produced | correctness | `validator --test consumption-order` |
 | 6 | **Conservation of money**: total balance never changes from transfers | correctness | [`anytime_validate_balance.py`](workload/validator/test-composer/anytime_validate_balance.py) |
 | 7 | Every account in DynamoDB was actually produced and consumed | correctness | [`eventually_ibans_match.py`](workload/validator/test-composer/eventually_ibans_match.py) |
 | 8 | With production stopped, all produced data is consumed within 30s | availability | `validator --test producer-consumer-matches` |

@@ -1,3 +1,4 @@
+use antithesis_instrumentation as _;
 use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 
 use std::fmt::Write;
@@ -160,7 +161,6 @@ impl KafkaProducer {
                     .set("message.timeout.ms", "5000")
                     .set("transactional.id", "eactly_once_id")
                     .set("enable.idempotence", "true")
-                    .set("debug", "all")
                     .set("retries", "5") // For exactly-once, higher retries
                     .set("acks", "all")  // Ensure all replicas acknowledge
                     .create::<FutureProducer>()
@@ -175,7 +175,6 @@ impl KafkaProducer {
                     .set("message.timeout.ms", "5000")
                     .set("transactional.id", "eactly_once_id")
                     .set("enable.idempotence", "true")
-                    .set("debug", "all")
                     .set("retries", "5") // For exactly-once, higher retries
                     .set("acks", "all")
                     .set("batch.size", "16384") // 16 KB batch size
@@ -191,7 +190,6 @@ impl KafkaProducer {
                 let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
-                    .set("debug", "all")
                     .create()
                     .expect("kafka: atleast once producer creation error");
                 println!("kafka: creating atleast once kafka producer");
@@ -202,7 +200,6 @@ impl KafkaProducer {
                 let producer = ClientConfig::new()
                     .set("bootstrap.servers", brokers.join(","))
                     .set("message.timeout.ms", "5000")
-                    .set("debug", "all")
                     .set("batch.size", "16384") // 16 KB batch size
                     .set("linger.ms", "5") // Wait for 5ms before sending a batch, useful with for loops
                     .set("compression.type", "gzip") // Use gzip compression
@@ -399,7 +396,8 @@ impl Postgres {
             UPDATE producer
             SET 
                 produced_timestamp = $1,
-                producer_type = $2
+                producer_type = $2,
+                produced_seq = nextval('event_seq')
             WHERE id = $3;
         ";
         loop {

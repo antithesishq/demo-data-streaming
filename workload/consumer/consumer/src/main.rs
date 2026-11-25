@@ -1,3 +1,4 @@
+use antithesis_instrumentation as _;
 use std::time::{Instant, SystemTime, UNIX_EPOCH, Duration};
 
 use std::fmt::Write;
@@ -284,7 +285,8 @@ impl Postgres {
             SET 
                 consumed_timestamp = $1,
                 consumer_type = $2,
-                consumed_count = consumed_count + 1
+                consumed_count = consumed_count + 1,
+                consumed_seq = COALESCE(consumed_seq, nextval('event_seq'))
             WHERE id = $3;
         ";
         loop {
@@ -327,7 +329,7 @@ impl BankTransaction {
         let b_transaction: BankTransaction = serde_json::from_str(&b_d.data)
             .inspect_err(|e| {
                 println!("kafka: transaction data failed to deserialize: {:?}", e);
-                assert_sometimes!(false, "Consumer's consumed sub-message failed to deserialize to BankTransaction", &json!({ "error": format!("{:?}", e) }));
+                assert_unreachable!("Consumer's consumed sub-message failed to deserialize to BankTransaction", &json!({ "error": format!("{:?}", e) }));
             })?;
         println!("kafka: bank transaction: {:?}", b_transaction);
         Ok(b_transaction)
@@ -485,12 +487,12 @@ impl KafkaConsumer {
             },
             Some(Err(e)) => {
                 eprintln!("kafka: consumed message has incorrect string decoding");
-                assert_sometimes!(false, "Consumer's consumed message failed to decode payload", &json!({ "error": format!("{:?}", e) }));
+                assert_unreachable!("Consumer's consumed message failed to decode payload", &json!({ "error": format!("{:?}", e) }));
                 return Err(e.into());
             },
             None => {
                 eprintln!("kafka: consumed message has no payload");
-                assert_sometimes!(false, "Consumer's consumed message payload is None", &json!({ "error": "none" }));
+                assert_unreachable!("Consumer's consumed message payload is None", &json!({ "error": "none" }));
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Kafka payload is None").into());
             }
         };
@@ -516,7 +518,7 @@ impl KafkaConsumer {
         let b_d: BankData = serde_json::from_str(payload_str.trim())
             .map_err(|e| {
                 println!("kafka: consumed message failed to deserialize: {:?}", e);
-                assert_sometimes!(false, "Consumer's consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
+                assert_unreachable!("Consumer's consumed message failed to deserialize to BankData", &json!({ "error": format!("{:?}", e) }));
                 anyhow::Error::from(e)
             })?;
 

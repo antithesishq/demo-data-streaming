@@ -1,0 +1,91 @@
+name: Rose Cheetah
+
+on:
+  schedule:
+    - cron: "00 22 * * *"
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      max_compute_hours:
+        type: number
+        required: true
+        default: 12
+        description: Compute hours for the test run (minimum 12)
+      emails:
+        type: string
+        required: true
+        description: Email recipients
+
+jobs:
+  Rose-Cheetah:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - workload: test-composer
+            config: .
+            exclusions: '^(validator|data_generator|data_generator_client|state-tracker|ddd)$'
+          - workload: hegel
+            config: antithesis/streaming/config
+            exclusions: '^(driver|state-tracker)$'
+    env:
+      ANTITHESIS_TENANT: rose-cheetah
+      ANTITHESIS_REGISTRY: us-central1-docker.pkg.dev/molten-verve-216720/rose-pcheetah-repository
+      ANTITHESIS_API_KEY: ${{ secrets.ROSE_API_KEY }}
+      SNOUTY_CONTAINER_ENGINE: docker
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log Into Rose Cheetah Registry
+        uses: docker/login-action@v3
+        with:
+          registry: us-central1-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.ROSE_CHEETAH_GAR_KEY }}
+
+      - name: Install snouty
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/antithesishq/snouty/releases/latest/download/snouty-installer.sh | sh
+
+      - name: Build and pull images
+        run: |
+          docker compose -f ${{ matrix.config }}/docker-compose.yaml pull --ignore-buildable --ignore-pull-failures
+          make build-all
+          if [ "${{ matrix.workload }}" = hegel ]; then
+            docker compose -f ${{ matrix.config }}/docker-compose.yaml build driver
+          fi
+
+      - name: Validate the harness
+        run: snouty validate ${{ matrix.config }} --timeout 10m
+
+      - name: Launch an Antithesis run
+        env:
+          ANTITHESIS_GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          MAX_COMPUTE_HOURS: ${{ github.event.inputs.max_compute_hours || '12' }}
+          RECIPIENTS: ${{ github.event.inputs.emails || secrets.ZULIP_REPORT_EMAIL }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          extra=()
+          [ -n "$RECIPIENTS" ] && extra+=(--recipients "$(echo "$RECIPIENTS" | tr ',' ';')")
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) description="PR #$PR_NUMBER: $PR_TITLE" ;;
+            schedule)     description="Nightly run of $GITHUB_REF_NAME"
+                          extra+=(--source "demo-data-streaming-${{ matrix.workload }}") ;;
+            *)            description="Manual run of $GITHUB_REF_NAME" ;;
+          esac
+          snouty launch \
+            --launcher basic_test \
+            --config ${{ matrix.config }} \
+            --test-name "demo-data-streaming-rc-${{ matrix.workload }}" \
+            --description "[${{ matrix.workload }}] $description" \
+            --max-compute-hours "$MAX_COMPUTE_HOURS" \
+            --fault-tolerance high_availability \
+            --fault-exclusions '${{ matrix.exclusions }}' \
+            "${extra[@]}"

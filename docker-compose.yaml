@@ -7,10 +7,12 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENERS_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
       KAFKA_LISTENERS: "PLAINTEXT://kafka-1:9092,CONTROLLER://kafka-1:9093"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-1:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.11
@@ -24,16 +26,19 @@ services:
     hostname: kafka-2
     environment:
       KAFKA_BROKER_ID: 2
-      KAFKA_PROCESS_ROLES: "broker"
-      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-2:9092,CONTROLLER://kafka-2:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-2:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.12
     healthcheck:
-      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-1:9092 || exit 1
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-2:9092 || exit 1
       interval: 5s
       retries: 60
   kafka-3:
@@ -42,16 +47,19 @@ services:
     hostname: kafka-3
     environment:
       KAFKA_BROKER_ID: 3
-      KAFKA_PROCESS_ROLES: "broker"
-      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092"
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: BROKER
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_LISTENERS: "PLAINTEXT://kafka-3:9092,CONTROLLER://kafka-3:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-3:9092"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_INITIAL_BROKER_REGISTRATION_TIMEOUT_MS: 3600000
     networks:
       kafka-net:
         ipv4_address: 11.0.0.13
     healthcheck:
-      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-1:9092 || exit 1
+      test: /opt/kafka/bin/kafka-cluster.sh cluster-id --bootstrap-server kafka-3:9092 || exit 1
       interval: 5s
       retries: 60
   data_generator:
@@ -71,9 +79,9 @@ services:
     image: pgsql_client:latest
     environment:
       DATA_TYPE: _banktest_transaction
-      BATCH_SAVE_SIZE: 100 # saving # of records per batch
+      BATCH_SAVE_SIZE: 100
       BANK_TEST_NO_ACCOUNTS: 100
-      DATA_GENERATOR_ENDPOINT: http://data-generator:5000 # !No trailing slash
+      DATA_GENERATOR_ENDPOINT: http://data-generator:5000
       POSTGRES_HOST: state-tracker
       POSTGRES_PASSWORD: p
       POSTGRES_USER: u
@@ -107,7 +115,7 @@ services:
     container_name: producer
     environment:
       RUST_LOG: debug 
-    entrypoint: /producer/target/debug/producer
+    entrypoint: /producer/target/x86_64-unknown-linux-gnu/release/producer
     cap_add:
       - SYS_PTRACE
     networks:
@@ -126,7 +134,7 @@ services:
     container_name: consumer
     environment:
       RUST_LOG: debug 
-    entrypoint: /consumer/target/debug/consumer
+    entrypoint: /consumer/target/x86_64-unknown-linux-gnu/release/consumer
     networks:
       kafka-net:
         ipv4_address: 11.0.0.18
@@ -157,6 +165,7 @@ services:
     container_name: ddb
     hostname: ddb
     image: docker.io/amazon/dynamodb-local:2.6.1
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal"]
     ports:
       - "8000:8000"
     networks:

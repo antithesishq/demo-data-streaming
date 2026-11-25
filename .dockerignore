@@ -1,0 +1,3 @@
+# `snouty launch --config .` and config.Dockerfile need only the compose file.
+*
+!docker-compose.yaml
