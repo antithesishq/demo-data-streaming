@@ -129,9 +129,9 @@ impl Postgres {
         Ok(accounts)
     }
 
-    // Exactly-once rows that were both produced and consumed, in the order the
-    // consumer first consumed them. produced_seq and consumed_seq come from one
-    // Postgres sequence, so they order events without relying on clocks.
+    // Returns the exactly-once records the consumer has read in the order it
+    // read them. One Postgres counter numbers every produce and consume event
+    // so the order does not depend on clocks.
     async fn get_exactly_once_consumption_order(&self) -> Result<Vec<(i32, i64, i64)>, Error> {
         let query = "
             SELECT id, produced_seq, consumed_seq
@@ -184,8 +184,8 @@ enum Tests {
     ProducerConsumerMatches
 }
 
-// Every row consumed after another must also have been produced after it.
-// Returns each (earlier, later) pair of consecutive consumptions that breaks that.
+// Returns each pair of records the consumer read in a different order than
+// the producer sent them.
 fn find_out_of_order_consumption(rows: &[(i32, i64, i64)]) -> Vec<Value> {
     rows.windows(2)
         .filter(|pair| pair[1].1 < pair[0].1)
@@ -265,12 +265,10 @@ async fn main() {
                 }
             }
             Tests::ConsumptionOrder => {
-                // Kafka orders messages within a partition, and bankEO has one
-                // partition and an idempotent, transactional producer whose
-                // requests the producer service handles one at a time. So bankEO
-                // must be consumed in the order it was produced. The at-least-once
-                // topic makes no such promise: a send that times out may still be
-                // delivered, and the producer service sends that row again later.
+                // Kafka keeps messages in order within a partition and the
+                // exactly-once topic has only one. The consumer must read that topic
+                // in the order the producer sent it. The at-least-once topic makes no
+                // promise about order.
                 match pg_client.get_exactly_once_consumption_order().await {
                     Ok(rows) => {
                         let out_of_order = find_out_of_order_consumption(&rows);
